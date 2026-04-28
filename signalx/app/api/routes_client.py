@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.auth.deps import get_current_user
@@ -19,9 +20,15 @@ def my_subscriptions(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> list[dict[str, Any]]:
+    # Use func.lower on both sides so the lookup is case-insensitive in
+    # Postgres (= is case-sensitive there). Defense in depth on top of
+    # the storage-side normalization in routes_autotrade.subscribe.
     rows = (
         db.query(AutoTradeSubscription)
-        .filter((AutoTradeSubscription.user_id == user.id) | (AutoTradeSubscription.email == user.email))
+        .filter(
+            (AutoTradeSubscription.user_id == user.id)
+            | (func.lower(AutoTradeSubscription.email) == (user.email or "").lower())
+        )
         .order_by(AutoTradeSubscription.created_at.desc())
         .all()
     )
@@ -70,7 +77,7 @@ def _own_sub(db: Session, user: User, sub_id: int) -> AutoTradeSubscription:
     )
     if sub is None:
         raise HTTPException(status_code=404, detail="subscription not found")
-    if sub.user_id != user.id and sub.email != user.email:
+    if sub.user_id != user.id and (sub.email or "").lower() != (user.email or "").lower():
         raise HTTPException(status_code=403, detail="not your subscription")
     return sub
 

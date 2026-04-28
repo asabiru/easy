@@ -36,3 +36,46 @@ def test_manager_lead_update_writes_audit_log(client_with_db):
     assert a.actor_user_id == mgr.id
     body = json.loads(a.payload)
     assert body["status"] == {"from": "new", "to": "qualified"}
+
+
+def test_subscription_email_lowercased_for_case_insensitive_ownership(client_with_db):
+    client, db_session = client_with_db
+    """Regression for BUG_pr-review-job-c8f76a0a7ea14148af0c2e1080f31a5f_0001/0002/0003.
+
+    A subscription created anonymously with mixed-case email must still
+    be visible and own-able by a user whose account email is the
+    lowercased version (routes_auth always lowercases on register)."""
+    from app.database.models import AutoTradeSubscription
+    from app.auth.security import hash_password
+    from app.database.models import User
+
+    # Anonymous (no auth) subscribe with mixed-case email
+    r = client.post("/autotrade/subscribe", json={
+        "email": "Alice@Example.com",
+        "tier": "auto_lite",
+        "exchange_id": "bybit",
+        "api_key": "k" * 16,
+        "api_secret": "s" * 16,
+    })
+    assert r.status_code == 200, r.text
+    sub_id = r.json()["subscription_id"]
+
+    # The stored email should be lowercased
+    sub = db_session.query(AutoTradeSubscription).filter(AutoTradeSubscription.id == sub_id).first()
+    assert sub.email == "alice@example.com"
+
+    # Now register Alice (auth always lowercases) and log in
+    r = client.post("/auth/register", json={"email": "Alice@Example.com", "password": "pw1234567"})
+    assert r.status_code == 200
+    r = client.post("/auth/login", json={"email": "alice@example.com", "password": "pw1234567"})
+    assert r.status_code == 200
+
+    # /client/me/subscriptions must list the anonymous-subscribe row
+    r = client.get("/client/me/subscriptions")
+    assert r.status_code == 200
+    ids = [s["id"] for s in r.json()]
+    assert sub_id in ids
+
+    # /client/me/subscriptions/{id} must succeed (not 403)
+    r = client.get(f"/client/me/subscriptions/{sub_id}")
+    assert r.status_code == 200

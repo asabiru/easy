@@ -73,7 +73,11 @@ def subscribe(
 ) -> dict[str, Any]:
     s = get_settings()
     sub = AutoTradeSubscription(
-        email=str(payload.email),
+        # Always store the local-part lowercased so that downstream
+        # ownership checks against `user.email` (which routes_auth always
+        # lowercases on registration) match in case-sensitive databases
+        # like Postgres.
+        email=str(payload.email).lower(),
         user_id=user.id if user else None,
         tier=payload.tier,
         exchange_id=payload.exchange_id.lower(),
