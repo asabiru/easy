@@ -129,6 +129,10 @@ class User(Base):
     # Geo captured at registration. ISO 3166-1 alpha-2.
     country = Column(String(2), nullable=True, index=True)
     sub_region = Column(String(8), nullable=True)
+    # Referral code: deterministic from user_id (e.g. SX1A2B3C). Generated
+    # lazily on first GET /referral/me call. Stored on User so we don't have
+    # to JOIN on every signup attempt to look up which referrer a code belongs to.
+    referral_code = Column(String(16), nullable=True, unique=True, index=True)
 
 
 class KycProfile(Base):
@@ -229,6 +233,49 @@ class InvestorLead(Base):
     status = Column(String(16), nullable=False, default="new", index=True)
     assigned_manager_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     notes = Column(Text, nullable=True)
+
+
+class LeadActivity(Base):
+    """Per-lead activity timeline (notes, calls, emails, status changes,
+    assignment changes). Manager CRM uses this to render the right-rail
+    timeline on `/manager.html`. Append-only.
+
+    `kind` ∈ {note, call_logged, email_sent, status_change, assignment, score_recompute}
+    """
+
+    __tablename__ = "lead_activities"
+
+    id = Column(Integer, primary_key=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    lead_id = Column(Integer, ForeignKey("investor_leads.id", ondelete="CASCADE"), nullable=False, index=True)
+    actor_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    kind = Column(String(32), nullable=False, index=True)
+    body = Column(Text, nullable=True)
+
+
+class Referral(Base):
+    """Tracks referrer→referee relationships and accrued earnings.
+
+    `status` lifecycle:
+      pending      → referee signed up but no first paid sub yet
+      qualified    → referee converted to paid sub (first_paid_at populated)
+      revoked      → user blocked / refund / fraud → not paid out
+
+    `earnings_usdt` is the total accrued (lifetime) referral commission. The
+    actual payout flow runs via `app/payments/*` once the user requests it.
+    Default: 20% of referee's gross revenue for first 12 months.
+    """
+
+    __tablename__ = "referrals"
+
+    id = Column(Integer, primary_key=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    referrer_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    referee_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True, unique=True)
+    code = Column(String(16), nullable=False, index=True)
+    status = Column(String(16), nullable=False, default="pending", index=True)
+    first_paid_at = Column(DateTime, nullable=True)
+    earnings_usdt = Column(Float, nullable=False, default=0.0)
 
 
 class AuditLog(Base):

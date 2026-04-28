@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>SignalX — Event-driven alpha for crypto stock perpetuals</title>
   <meta name="description" content="Event-driven trading signals for tokenized stock perpetual futures. Two tracks: investor IB capital introduction and a retail auto-trade bot. We never hold your money." />
+  <link rel="icon" type="image/svg+xml" href="/assets/brand/mark.svg" />
   <link rel="preconnect" href="https://cdn.tailwindcss.com" />
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -86,9 +87,10 @@
   <!-- top nav -->
   <header class="fixed top-0 inset-x-0 z-40 backdrop-blur-md bg-[#07080d]/70 border-b border-[#1c2031]">
     <div class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-      <a href="/" class="flex items-center gap-2 group">
-        <span class="w-7 h-7 rounded-md bg-gradient-to-br from-emerald-400 to-sky-400 flex items-center justify-center text-[#071018] font-bold">S</span>
-        <span class="font-semibold tracking-tight">SignalX</span>
+      <a href="/" class="flex items-center gap-2 group" aria-label="SignalX">
+        <img src="/assets/brand/mark.svg" alt="" class="w-7 h-7" />
+        <img src="/assets/brand/wordmark.svg" alt="SignalX" class="h-6 hidden sm:block" />
+        <span class="font-semibold tracking-tight sm:hidden">SignalX</span>
       </a>
       <nav class="hidden md:flex items-center gap-8 text-sm">
         <a href="#how" class="nav-link">How it works</a>

@@ -1,0 +1,81 @@
+/* SignalX design tokens — single source of truth.
+   See .agents/skills/designer/SKILL.md for usage rules. */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter+Tight:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+  /* surfaces */
+  --surface-0: #07090c;
+  --surface-1: #0e1116;
+  --surface-2: #161b22;
+  --surface-3: #1f2630;
+  --border-1:  rgba(255, 255, 255, 0.07);
+  --border-2:  rgba(255, 255, 255, 0.12);
+
+  /* text */
+  --text-primary: #e9eef5;
+  --text-secondary: #b0b8c4;
+  --text-muted: #6c7686;
+
+  /* brand + semantic */
+  --brand-1: #7c5cff;
+  --brand-2: #19b8ff;
+  --brand-grad: linear-gradient(135deg, #7c5cff 0%, #19b8ff 100%);
+
+  --bull: #22c55e;
+  --bear: #ef4444;
+  --watch: #facc15;
+  --info: #19b8ff;
+
+  /* radii / shadow / motion */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-2: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --motion-fast: 150ms cubic-bezier(0.16, 1, 0.3, 1);
+  --motion-med:  300ms cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* typography */
+  --font-display: 'Inter Tight', 'Inter', system-ui, sans-serif;
+  --font-ui: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  /* layout */
+  --max-w: 1280px;
+  --gutter: 24px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--surface-0);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1, h2, h3, h4 { font-family: var(--font-display); font-weight: 700; letter-spacing: -0.01em; margin: 0; }
+h1 { font-size: 40px; line-height: 1.1; }
+h2 { font-size: 28px; line-height: 1.2; }
+h3 { font-size: 18px; line-height: 1.3; }
+h4 { font-size: 14px; line-height: 1.4; color: var(--text-secondary); }
+small, .muted { color: var(--text-muted); }
+.mono, code, pre { font-family: var(--font-mono); }
+a { color: var(--brand-2); text-decoration: none; }
+a:hover { text-decoration: underline; }
+hr { border: 0; border-top: 1px solid var(--border-1); margin: 16px 0; }
+
+/* selection */
+::selection { background: var(--brand-1); color: #fff; }
+
+/* scrollbars (webkit only — graceful on Firefox) */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--surface-0); }
+::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #2a3340; }

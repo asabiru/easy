@@ -19,7 +19,9 @@ from app.database.models import (
     AutoTradeSubscription,
     InvestorLead,
     NewsEvent,
+    Payment,
     Signal,
+    SignalResult,
     SupportTicket,
     User,
 )
@@ -236,6 +238,147 @@ def admin_orders(
         }
         for r in rows
     ]
+
+
+# ─────────────────────────── metrics dashboards ─────────────────────────── #
+
+# Subscription tier monthly price in USDT. Used by /admin/metrics/revenue
+# to compute MRR. Source-of-truth pricing — must match landing-page
+# pricing copy. When pricing changes, update both this map and
+# `site/index.html` pricing section together.
+TIER_PRICE_USDT = {
+    "manual_plus": 19.0,
+    "auto_lite": 49.0,
+    "auto_pro": 99.0,
+    "vip": 499.0,
+}
+
+
+@router.get("/admin/metrics/revenue")
+def metrics_revenue(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("manager")),  # manager+ for visibility
+) -> dict[str, Any]:
+    """Revenue dashboard: MRR, ARR projection, churn 30d, active by tier.
+
+    MRR is computed from the active subscription tier mix multiplied by
+    the public price card (TIER_PRICE_USDT). ARR projection is a naive
+    `MRR × 12` — stable for narrow comp ranges, undercount-biased for
+    high-tier mix shifts (Auto-Pro / VIP have higher churn). Churn-30d
+    is `cancellations_last_30d / active_subs_at_start_of_window`.
+    """
+    now = datetime.utcnow()
+    window_start = now - timedelta(days=30)
+
+    active_subs = (
+        db.query(AutoTradeSubscription)
+        .filter(AutoTradeSubscription.status.in_(("paper", "live")))
+        .all()
+    )
+    by_tier: dict[str, int] = {}
+    for s in active_subs:
+        by_tier[s.tier] = by_tier.get(s.tier, 0) + 1
+
+    mrr = sum(by_tier.get(t, 0) * p for t, p in TIER_PRICE_USDT.items())
+
+    # Churn = subs that moved to killed within the last 30d.
+    # The status_change audit-log entries don't capture this perfectly
+    # (no enforced provenance), so we approximate via the killed-status
+    # subscriptions whose updated_at is in-window. This will undercount
+    # rapid-cycle reactivations, which is acceptable for an MVP-grade
+    # cohort signal.
+    killed_30d = (
+        db.query(AutoTradeSubscription)
+        .filter(AutoTradeSubscription.status == "killed")
+        .filter(AutoTradeSubscription.updated_at >= window_start)
+        .count()
+    )
+    active_count = len(active_subs)
+    churn_pct = (
+        round(100.0 * killed_30d / max(active_count + killed_30d, 1), 2)
+    )
+
+    # Cumulative paid revenue from /payments table (TON Wallet Pay).
+    paid_payments = (
+        db.query(Payment).filter(Payment.status == "paid").all()
+    )
+    revenue_lifetime = round(sum(p.amount_usdt for p in paid_payments), 2)
+    revenue_30d = round(
+        sum(
+            p.amount_usdt
+            for p in paid_payments
+            if p.paid_at and p.paid_at >= window_start
+        ),
+        2,
+    )
+
+    return {
+        "mrr_usdt": round(mrr, 2),
+        "arr_projection_usdt": round(mrr * 12, 2),
+        "active_subs": active_count,
+        "active_by_tier": by_tier,
+        "churn_30d_pct": churn_pct,
+        "killed_30d": killed_30d,
+        "revenue_paid_lifetime_usdt": revenue_lifetime,
+        "revenue_paid_30d_usdt": revenue_30d,
+        "tier_price_card": TIER_PRICE_USDT,
+    }
+
+
+@router.get("/admin/metrics/signal-quality")
+def metrics_signal_quality(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("manager")),
+) -> dict[str, Any]:
+    """Signal quality dashboard for the trading-risk skill.
+
+    `win_rate_30d` only counts non-WATCH/SKIP signals — those don't
+    have a directional thesis, so including them would dilute the
+    metric. `avg_signal_score` is across all signals (WATCH and SKIP
+    inclusive) to capture the engine's overall confidence trend.
+    """
+    window_start = datetime.utcnow() - timedelta(days=30)
+
+    actionable = (
+        db.query(Signal)
+        .outerjoin(SignalResult, SignalResult.signal_id == Signal.id)
+        .filter(Signal.created_at >= window_start)
+        .filter(Signal.action.in_(("LONG", "SHORT")))
+        .all()
+    )
+    wins = sum(1 for s in actionable if s.result and s.result.result == "win")
+    losses = sum(1 for s in actionable if s.result and s.result.result == "loss")
+    decided = wins + losses
+    win_rate = round(100.0 * wins / decided, 2) if decided else None
+
+    all_signals = (
+        db.query(Signal).filter(Signal.created_at >= window_start).all()
+    )
+    by_action: dict[str, int] = {}
+    for s in all_signals:
+        by_action[s.action] = by_action.get(s.action, 0) + 1
+    avg_score = (
+        round(sum(s.signal_score for s in all_signals) / len(all_signals), 1)
+        if all_signals else None
+    )
+    fake_risk_avg = round(
+        sum(getattr(s.event, "fake_risk", 0) or 0 for s in all_signals)
+        / max(len(all_signals), 1),
+        1,
+    ) if all_signals else None
+
+    return {
+        "window_days": 30,
+        "signals_total": len(all_signals),
+        "by_action": by_action,
+        "actionable_count": len(actionable),
+        "wins": wins,
+        "losses": losses,
+        "undecided": len(actionable) - decided,
+        "win_rate_pct": win_rate,
+        "avg_signal_score": avg_score,
+        "avg_fake_risk": fake_risk_avg,
+    }
 
 
 # ─────────────────────────── audit ─────────────────────────── #

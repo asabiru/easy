@@ -20,6 +20,7 @@ from app.api import (
     routes_kyc,
     routes_manager,
     routes_payments,
+    routes_referral,
     routes_news,
     routes_signals,
     routes_support,
@@ -65,6 +66,7 @@ def create_app() -> FastAPI:
     app.include_router(routes_admin.router, tags=["admin"])
     app.include_router(routes_kyc.router, tags=["kyc"])
     app.include_router(routes_payments.router, tags=["payments"])
+    app.include_router(routes_referral.router, tags=["referral"])
 
     # CORS — accept configured origins or default to permissive for MVP
     origins_csv = os.environ.get("CORS_ORIGINS", "*")

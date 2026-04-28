@@ -4,18 +4,19 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Dashboard · SignalX</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="icon" type="image/svg+xml" href="/assets/brand/mark.svg" />
   <link rel="stylesheet" href="/assets/panel.css" />
 </head>
 <body>
   <div class="app-shell">
     <aside class="sidebar">
-      <h1><span class="dot">S</span> SignalX</h1>
+      <h1><img src="/assets/brand/mark.svg" alt="" width="24" height="24"/> SignalX</h1>
       <nav>
         <a href="/app.html" class="active">Overview</a>
-        <a href="#subs" data-tab="subs">My Subscriptions</a>
-        <a href="#trades" data-tab="trades">Recent Trades</a>
-        <a href="#settings" data-tab="settings">Settings</a>
+        <a href="#subs" data-tab="subs">Subscriptions</a>
+        <a href="#signals" data-tab="signals">Signal feed</a>
+        <a href="#referral" data-tab="referral">Refer & earn</a>
+        <a href="#trades" data-tab="trades">Recent trades</a>
         <a href="/" target="_blank">↗ Public site</a>
       </nav>
       <div class="footer">
@@ -59,6 +60,23 @@
           <thead><tr><th>ID</th><th>Tier</th><th>Exchange</th><th>Status</th><th>Live</th><th>Paper until</th><th>Actions</th></tr></thead>
           <tbody id="subs-tbody"><tr><td colspan="7" class="empty">Loading…</td></tr></tbody>
         </table>
+      </section>
+
+      <section id="signals-section" class="panel">
+        <h3 style="display:flex;justify-content:space-between;align-items:center">
+          Live signal feed
+          <input id="signal-filter" placeholder="Filter ticker (e.g. NVDA)" style="max-width:240px" oninput="renderSignals()" />
+        </h3>
+        <div id="signals-list" style="display:grid;gap:10px">
+          <div class="empty">Loading…</div>
+        </div>
+      </section>
+
+      <section id="referral-section" class="panel">
+        <h3>Refer & earn 20% rev-share for 12 months</h3>
+        <div id="referral-body">
+          <div class="skeleton lg"></div><div class="skeleton"></div>
+        </div>
       </section>
 
       <section id="trades-section" class="panel">
@@ -137,18 +155,101 @@
         <tr>
           <td class="mono">#${s.id}</td>
           <td>${s.tier}</td>
-          <td class="mono">${s.exchange_id}</td>
+          <td class="mono">${s.exchange_id} <span class="pill pill-muted" id="keyhealth-${s.id}" style="font-size:10px">…</span></td>
           <td>${SX.badge(s.status, s.status)}</td>
           <td>${s.live_trading_enabled ? '<span class="badge badge-live">live</span>' : '<span class="badge badge-paper">paper</span>'}</td>
-          <td class="muted">${SX.fmtDt(s.paper_until)}</td>
-          <td>
-            <button class="btn-warn" onclick="paperMode(${s.id})">Paper</button>
-            <button class="btn-danger" onclick="killSub(${s.id})">Kill</button>
-            <button onclick="resumeSub(${s.id})">Resume</button>
+          <td class="muted mono">${SX.fmtDt(s.paper_until)}</td>
+          <td class="row">
+            <button class="btn btn-sm" onclick="checkKeys(${s.id})">Test keys</button>
+            <button class="btn btn-sm btn-warn" onclick="paperMode(${s.id})">Paper</button>
+            <button class="btn btn-sm btn-danger" onclick="killSub(${s.id})">Kill</button>
+            <button class="btn btn-sm" onclick="resumeSub(${s.id})">Resume</button>
           </td>
         </tr>
       `).join('');
     }
+
+    async function checkKeys(id) {
+      const cell = document.getElementById('keyhealth-' + id);
+      if (cell) cell.textContent = 'checking…';
+      try {
+        const r = await SX.api('/autotrade/' + id + '/test-keys', {method:'POST'});
+        if (cell) {
+          cell.className = 'pill ' + (r.ok ? 'pill-success' : 'pill-bear');
+          cell.textContent = r.ok ? 'keys ok' : 'keys: ' + (r.error || 'fail');
+          cell.title = r.masked_key || '';
+        }
+      } catch (e) {
+        if (cell) { cell.className = 'pill pill-bear'; cell.textContent = 'check error'; }
+      }
+    }
+    window.checkKeys = checkKeys;
+
+    let allSignals = [];
+    async function loadSignals() {
+      try {
+        const sigs = await SX.api('/signals?limit=50');
+        allSignals = Array.isArray(sigs) ? sigs : (sigs.signals || []);
+        renderSignals();
+      } catch (e) { console.warn('signals', e); }
+    }
+    function renderSignals() {
+      const q = (document.getElementById('signal-filter').value || '').toUpperCase().trim();
+      const list = document.getElementById('signals-list');
+      const filtered = q ? allSignals.filter(s => (s.ticker || '').includes(q) || (s.symbol || '').includes(q)) : allSignals;
+      if (!filtered.length) {
+        list.innerHTML = '<div class="empty"><div class="empty-title">No signals match</div><div class="empty-body">Try a different ticker or wait for the next news event.</div></div>';
+        return;
+      }
+      list.innerHTML = filtered.slice(0, 20).map(s => {
+        const a = (s.action || 'WATCH').toLowerCase();
+        return `<div class="signal-card">
+          <div class="head">
+            <span class="pill pill-${a === 'long' ? 'bull' : a === 'short' ? 'bear' : a === 'watch' ? 'watch' : 'muted'}">${(s.action || 'WATCH')}</span>
+            <span class="ticker">${s.ticker || ''}</span>
+            <span class="mono muted" style="font-size:12px">${s.symbol || ''} · score ${(s.signal_score || 0).toFixed(1)}</span>
+            <span class="meta">${SX.fmtDt(s.created_at)}</span>
+          </div>
+          ${s.reason ? `<div class="reason">${(s.reason || '').slice(0, 240)}</div>` : ''}
+        </div>`;
+      }).join('');
+    }
+    window.renderSignals = renderSignals;
+
+    async function loadReferral() {
+      const body = document.getElementById('referral-body');
+      try {
+        const r = await SX.api('/referral/me');
+        const link = r.share_url || '';
+        body.innerHTML = `
+          <div class="kpi-grid" style="margin-bottom:14px">
+            <div class="kpi"><div class="label">Your code</div><div class="value mono" style="font-size:22px">${r.code}</div></div>
+            <div class="kpi"><div class="label">Referees (qualified)</div><div class="value">${r.referees_qualified || 0}<span class="muted" style="font-size:14px"> / ${r.referees_total || 0}</span></div></div>
+            <div class="kpi"><div class="label">Earnings (USDT)</div><div class="value pos">${SX.fmtMoney(r.earnings_usdt || 0)}</div></div>
+          </div>
+          <p class="muted" style="margin:0 0 12px">Share your link. When someone subscribes through it, you earn 20% of their gross revenue for the first 12 months. Payouts via TON Wallet Pay (USDT-TON, ~$0.01 fees).</p>
+          <div class="row">
+            <input id="ref-link" value="${link}" readonly />
+            <button class="btn btn-primary" onclick="copyRef()">Copy link</button>
+            <a class="btn btn-ghost" target="_blank" rel="noopener" href="${r.share_telegram}">Share on Telegram</a>
+          </div>`;
+      } catch (e) {
+        body.innerHTML = '<div class="alert alert-warn">Could not load referral status. Try refreshing.</div>';
+      }
+    }
+    function copyRef() {
+      const el = document.getElementById('ref-link');
+      if (!el) return;
+      el.select();
+      document.execCommand('copy');
+      const t = document.createElement('div');
+      t.className = 'sx-toast success';
+      t.textContent = 'Link copied to clipboard';
+      const rail = document.getElementById('sx-toast-rail') || (() => { const d = document.createElement('div'); d.id = 'sx-toast-rail'; document.body.appendChild(d); return d; })();
+      rail.appendChild(t);
+      setTimeout(() => t.remove(), 4000);
+    }
+    window.copyRef = copyRef;
 
     async function loadOrders() {
       let orders = [];
@@ -195,7 +296,13 @@
     async function resumeSub(id) { await SX.api(`/autotrade/${id}/resume`, {method:'POST'}); refresh(); }
     window.paperMode = paperMode; window.killSub = killSub; window.resumeSub = resumeSub;
 
-    async function refresh() { await loadSubs(); await loadOrders(); await loadKyc(); }
+    async function refresh() {
+      await loadSubs();
+      await loadOrders();
+      await loadKyc();
+      await loadSignals();
+      await loadReferral();
+    }
 
     (async () => {
       await loadMe();

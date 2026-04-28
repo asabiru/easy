@@ -159,6 +159,58 @@ def go_live(
     return {"subscription_id": sub.id, "status": sub.status, "live_trading_enabled": True}
 
 
+@router.post("/autotrade/{sub_id}/test-keys")
+def test_keys(
+    sub_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Health-check the stored API key against the exchange.
+
+    Returns:
+      {ok: bool, exchange: str, error: str|null, masked_key: str}
+
+    Doesn't read or return raw key material — only first/last 4 chars
+    of the API key id (not the secret) for visual confirmation in the UI.
+
+    Implementation: ccxt's `fetch_balance()` is the cheapest authenticated
+    call. We catch every ccxt exception class and return a structured
+    error so the client can render a useful message instead of a 500.
+    """
+    from app.autotrade.crypto import decrypt
+
+    sub = _own_or_admin(db, sub_id, user)
+    if not sub.api_key_encrypted:
+        return {"ok": False, "exchange": sub.exchange_id, "error": "no api key on file", "masked_key": ""}
+    try:
+        api_key = decrypt(sub.api_key_encrypted)
+    except Exception as exc:  # decrypt failed (bad enc-key, corrupt blob)
+        return {"ok": False, "exchange": sub.exchange_id, "error": f"decrypt error: {type(exc).__name__}", "masked_key": ""}
+    masked = (api_key[:4] + "…" + api_key[-4:]) if len(api_key) >= 8 else "…"
+
+    # ccxt is heavy and not always present on minimal test installs; lazy
+    # import so this endpoint doesn't break unrelated tests.
+    try:
+        import ccxt  # type: ignore
+    except Exception:
+        return {"ok": False, "exchange": sub.exchange_id, "error": "ccxt not installed", "masked_key": masked}
+
+    try:
+        klass = getattr(ccxt, sub.exchange_id)
+    except AttributeError:
+        return {"ok": False, "exchange": sub.exchange_id, "error": f"unknown exchange '{sub.exchange_id}'", "masked_key": masked}
+
+    try:
+        # Note: api_secret_encrypted isn't on the model in the MVP — the
+        # encrypted blob already contains a JSON of {key, secret}. If
+        # that contract changes, this endpoint must be updated alongside.
+        instance = klass({"apiKey": api_key, "enableRateLimit": True})
+        instance.fetch_balance()
+        return {"ok": True, "exchange": sub.exchange_id, "error": None, "masked_key": masked}
+    except Exception as exc:
+        return {"ok": False, "exchange": sub.exchange_id, "error": f"{type(exc).__name__}: {str(exc)[:200]}", "masked_key": masked}
+
+
 @router.post("/autotrade/{sub_id}/kill")
 def kill(
     sub_id: int,

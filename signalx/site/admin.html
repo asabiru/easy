@@ -4,17 +4,20 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Admin · SignalX</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="icon" type="image/svg+xml" href="/assets/brand/mark.svg" />
   <link rel="stylesheet" href="/assets/panel.css" />
 </head>
 <body>
   <div class="app-shell">
     <aside class="sidebar">
-      <h1><span class="dot">S</span> SignalX <span style="font-size:11px;color:var(--accent-3);font-weight:400;margin-left:6px">Admin</span></h1>
+      <h1><img src="/assets/brand/mark.svg" alt="" width="24" height="24"/> SignalX <span style="font-size:11px;color:#b8a3ff;font-weight:400;margin-left:6px">Admin</span></h1>
       <nav id="tabs-nav">
         <a data-tab="system" class="active">System</a>
+        <a data-tab="revenue">Revenue</a>
+        <a data-tab="quality">Signal quality</a>
         <a data-tab="users">Users</a>
         <a data-tab="subs">Subscriptions</a>
+        <a data-tab="referrals">Referrals</a>
         <a data-tab="signals">Signals</a>
         <a data-tab="orders">Orders</a>
         <a data-tab="audit">Audit</a>
@@ -35,6 +38,45 @@
         <div class="kpi-grid" id="system-kpis"></div>
         <div class="alert alert-warn" id="kill-warning" style="display:none">
           <strong>Global autotrade kill switch is OFF.</strong> No subscription can place real orders, regardless of per-sub flags. Set <code>ENABLE_AUTOTRADE=true</code> in your env to allow live trading.
+        </div>
+      </section>
+
+      <section data-tab="revenue" hidden>
+        <div class="kpi-grid" id="revenue-kpis"><div class="skeleton xl"></div><div class="skeleton xl"></div><div class="skeleton xl"></div><div class="skeleton xl"></div></div>
+        <div class="panel">
+          <h3>Active subscriptions by tier</h3>
+          <table>
+            <thead><tr><th>Tier</th><th>Active subs</th><th>Monthly price (USDT)</th><th>Tier MRR</th></tr></thead>
+            <tbody id="revenue-tier-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section data-tab="quality" hidden>
+        <div class="kpi-grid" id="quality-kpis"><div class="skeleton xl"></div><div class="skeleton xl"></div><div class="skeleton xl"></div><div class="skeleton xl"></div></div>
+        <div class="panel">
+          <h3>Signal action breakdown (last 30d)</h3>
+          <table>
+            <thead><tr><th>Action</th><th>Count</th><th>Share</th></tr></thead>
+            <tbody id="quality-action-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section data-tab="referrals" hidden>
+        <div class="panel">
+          <h3>Top referrers</h3>
+          <table>
+            <thead><tr><th>Referrer</th><th>Code</th><th>Referees</th><th>Earnings (USDT)</th></tr></thead>
+            <tbody id="referrals-leaderboard-tbody"></tbody>
+          </table>
+        </div>
+        <div class="panel">
+          <h3>Recent referrals</h3>
+          <table>
+            <thead><tr><th>When</th><th>Code</th><th>Referrer</th><th>Referee</th><th>Status</th><th>First paid</th><th>Earnings</th></tr></thead>
+            <tbody id="referrals-recent-tbody"></tbody>
+          </table>
         </div>
       </section>
 
@@ -123,7 +165,8 @@
       document.querySelectorAll('#tabs-nav a').forEach(a => a.classList.toggle('active', a.dataset.tab === name));
       document.querySelectorAll('section[data-tab]').forEach(s => s.hidden = s.dataset.tab !== name);
       document.getElementById('page-title').textContent = ({
-        system: 'System overview', users: 'Users', subs: 'Subscriptions',
+        system: 'System overview', revenue: 'Revenue dashboard', quality: 'Signal quality',
+        users: 'Users', subs: 'Subscriptions', referrals: 'Referrals',
         signals: 'Signals', orders: 'Orders', audit: 'Audit log',
         compliance: 'Compliance / KYC'
       })[name];
@@ -278,8 +321,68 @@
     }
     window.kycOverride = kycOverride;
 
+    async function loadRevenue() {
+      const r = await SX.api('/admin/metrics/revenue');
+      document.getElementById('revenue-kpis').innerHTML = `
+        <div class="kpi"><div class="label">MRR</div><div class="value pos">$${r.mrr_usdt.toLocaleString()}</div><div class="delta">${r.active_subs} active subs</div></div>
+        <div class="kpi"><div class="label">ARR projection</div><div class="value">$${r.arr_projection_usdt.toLocaleString()}</div><div class="delta muted">MRR × 12, naive</div></div>
+        <div class="kpi"><div class="label">Churn 30d</div><div class="value ${r.churn_30d_pct > 8 ? 'neg' : ''}">${r.churn_30d_pct}%</div><div class="delta">${r.killed_30d} killed</div></div>
+        <div class="kpi"><div class="label">Revenue 30d</div><div class="value">$${r.revenue_paid_30d_usdt.toLocaleString()}</div><div class="delta muted">$${r.revenue_paid_lifetime_usdt.toLocaleString()} lifetime</div></div>
+      `;
+      const tbody = document.getElementById('revenue-tier-tbody');
+      tbody.innerHTML = Object.entries(r.tier_price_card).map(([tier, price]) => {
+        const count = r.active_by_tier[tier] || 0;
+        return `<tr><td>${tier}</td><td class="num">${count}</td><td class="num">$${price}</td><td class="num">$${(count * price).toLocaleString()}</td></tr>`;
+      }).join('');
+    }
+
+    async function loadQuality() {
+      const q = await SX.api('/admin/metrics/signal-quality');
+      document.getElementById('quality-kpis').innerHTML = `
+        <div class="kpi"><div class="label">Win rate (30d)</div><div class="value ${q.win_rate_pct == null ? '' : (q.win_rate_pct >= 55 ? 'pos' : (q.win_rate_pct < 45 ? 'neg' : ''))}">${q.win_rate_pct == null ? '—' : q.win_rate_pct + '%'}</div><div class="delta">${q.wins}W · ${q.losses}L · ${q.undecided} pending</div></div>
+        <div class="kpi"><div class="label">Signals total</div><div class="value">${q.signals_total}</div><div class="delta muted">${q.actionable_count} actionable</div></div>
+        <div class="kpi"><div class="label">Avg signal score</div><div class="value">${q.avg_signal_score ?? '—'}</div></div>
+        <div class="kpi"><div class="label">Avg fake-risk</div><div class="value">${q.avg_fake_risk ?? '—'}</div></div>
+      `;
+      const total = q.signals_total || 1;
+      const tbody = document.getElementById('quality-action-tbody');
+      const order = ['LONG', 'SHORT', 'WATCH', 'SKIP'];
+      tbody.innerHTML = order.filter(a => q.by_action[a]).map(a => {
+        const c = q.by_action[a];
+        const share = ((c / total) * 100).toFixed(1);
+        return `<tr><td>${SX.badge(a === 'LONG' ? 'long' : a === 'SHORT' ? 'short' : 'watch', a)}</td><td class="num">${c}</td><td class="num">${share}%</td></tr>`;
+      }).join('');
+    }
+
+    async function loadReferrals() {
+      const r = await SX.api('/admin/referrals');
+      document.getElementById('referrals-leaderboard-tbody').innerHTML = (r.leaderboard || []).map(x => `
+        <tr>
+          <td>${x.referrer_email || ('#' + x.referrer_id)}</td>
+          <td class="mono">${x.code || '—'}</td>
+          <td class="num">${x.count}</td>
+          <td class="num pos">$${(x.earnings_usdt || 0).toLocaleString()}</td>
+        </tr>
+      `).join('') || '<tr><td colspan="4" class="muted" style="text-align:center">No referrals yet.</td></tr>';
+      document.getElementById('referrals-recent-tbody').innerHTML = (r.recent || []).map(x => `
+        <tr>
+          <td class="muted mono">${SX.fmtDt(x.created_at)}</td>
+          <td class="mono">${x.code}</td>
+          <td class="mono">#${x.referrer_id}</td>
+          <td class="mono">#${x.referee_id}</td>
+          <td>${SX.badge(x.status === 'qualified' ? 'qualified' : x.status === 'revoked' ? 'rejected' : 'paper', x.status)}</td>
+          <td class="muted mono">${SX.fmtDt(x.first_paid_at)}</td>
+          <td class="num">$${(x.earnings_usdt || 0).toLocaleString()}</td>
+        </tr>
+      `).join('') || '<tr><td colspan="7" class="muted" style="text-align:center">No recent referrals.</td></tr>';
+    }
+
     function loadCurrentTab() {
-      ({system: loadSystem, users: loadUsers, subs: loadSubs, signals: loadSignals, orders: loadOrders, audit: loadAudit, compliance: loadCompliance})[currentTab]();
+      ({
+        system: loadSystem, revenue: loadRevenue, quality: loadQuality,
+        users: loadUsers, subs: loadSubs, referrals: loadReferrals,
+        signals: loadSignals, orders: loadOrders, audit: loadAudit, compliance: loadCompliance,
+      })[currentTab]();
     }
 
     document.querySelectorAll('#tabs-nav a[data-tab]').forEach(a => {
