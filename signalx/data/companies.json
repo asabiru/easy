@@ -78,5 +78,85 @@
     "keywords": ["Coinbase", "COIN", "Brian Armstrong", "Coinbase exchange", "Base L2"],
     "sector": "crypto_exchange",
     "related_tickers": ["HOOD", "MSTR"]
+  },
+  {
+    "company": "Exxon Mobil",
+    "ticker": "XOM",
+    "exchange_symbol": "XOMUSDT",
+    "keywords": ["Exxon", "ExxonMobil", "Exxon Mobil", "XOM", "Darren Woods", "Permian", "Pioneer Natural Resources", "Guyana", "LNG"],
+    "sector": "energy_oil_gas",
+    "related_tickers": ["CVX", "COP", "BP", "SHEL"]
+  },
+  {
+    "company": "Chevron",
+    "ticker": "CVX",
+    "exchange_symbol": "CVXUSDT",
+    "keywords": ["Chevron", "CVX", "Mike Wirth", "Hess acquisition", "Tengiz", "Wheatstone"],
+    "sector": "energy_oil_gas",
+    "related_tickers": ["XOM", "COP", "BP", "SHEL"]
+  },
+  {
+    "company": "ConocoPhillips",
+    "ticker": "COP",
+    "exchange_symbol": "COPUSDT",
+    "keywords": ["ConocoPhillips", "Conoco Phillips", "COP", "Ryan Lance", "Marathon Oil", "Eagle Ford", "Bakken"],
+    "sector": "energy_oil_gas",
+    "related_tickers": ["XOM", "CVX", "OXY"]
+  },
+  {
+    "company": "Occidental Petroleum",
+    "ticker": "OXY",
+    "exchange_symbol": "OXYUSDT",
+    "keywords": ["Occidental", "Occidental Petroleum", "OXY", "Vicki Hollub", "Anadarko", "CrownRock", "Berkshire Hathaway stake"],
+    "sector": "energy_oil_gas",
+    "related_tickers": ["XOM", "CVX", "COP"]
+  },
+  {
+    "company": "Shell",
+    "ticker": "SHEL",
+    "exchange_symbol": "SHELUSDT",
+    "keywords": ["Shell", "SHEL", "Royal Dutch Shell", "Wael Sawan", "BG Group", "Pearl GTL"],
+    "sector": "energy_oil_gas",
+    "related_tickers": ["BP", "XOM", "CVX"]
+  },
+  {
+    "company": "BP",
+    "ticker": "BP",
+    "exchange_symbol": "BPUSDT",
+    "keywords": ["BP", "British Petroleum", "Murray Auchincloss", "Castrol", "TNK-BP", "Deepwater Horizon"],
+    "sector": "energy_oil_gas",
+    "related_tickers": ["SHEL", "XOM", "CVX"]
+  },
+  {
+    "company": "Schlumberger",
+    "ticker": "SLB",
+    "exchange_symbol": "SLBUSDT",
+    "keywords": ["Schlumberger", "SLB", "Olivier Le Peuch", "oilfield services", "ChampionX"],
+    "sector": "energy_services",
+    "related_tickers": ["HAL", "BKR"]
+  },
+  {
+    "company": "NextEra Energy",
+    "ticker": "NEE",
+    "exchange_symbol": "NEEUSDT",
+    "keywords": ["NextEra", "NextEra Energy", "NEE", "John Ketchum", "Florida Power & Light", "FPL", "renewable utility"],
+    "sector": "energy_utility",
+    "related_tickers": ["DUK", "SO"]
+  },
+  {
+    "company": "First Solar",
+    "ticker": "FSLR",
+    "exchange_symbol": "FSLRUSDT",
+    "keywords": ["First Solar", "FSLR", "Mark Widmar", "thin-film solar", "CdTe", "Series 7"],
+    "sector": "energy_renewables",
+    "related_tickers": ["ENPH", "RUN", "SEDG"]
+  },
+  {
+    "company": "Enphase Energy",
+    "ticker": "ENPH",
+    "exchange_symbol": "ENPHUSDT",
+    "keywords": ["Enphase", "Enphase Energy", "ENPH", "Badri Kothandaraman", "IQ8 microinverter", "IQ Battery"],
+    "sector": "energy_renewables",
+    "related_tickers": ["FSLR", "SEDG", "RUN"]
   }
 ]

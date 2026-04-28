@@ -38,6 +38,7 @@ def assess(
     volume_5m: float | None,
     price_change_5m: float | None,
     source_reliability: int,
+    fake_risk: int = 0,
 ) -> RiskAssessment:
     a = RiskAssessment()
 
@@ -71,6 +72,18 @@ def assess(
     if impact_score < 60:
         a.reasons.append(f"low impact_score ({impact_score})")
         if a.action_override is None:
+            a.action_override = "WATCH"
+
+    # fake_risk gate: a high fake_risk score from the anti-fake module overrides
+    # everything else — we'd rather miss a real signal than emit a fabricated one.
+    if fake_risk >= 50:
+        a.fake_news_risk = max(a.fake_news_risk, 30)
+        a.reasons.append(f"high fake_risk ({fake_risk})")
+        a.action_override = "SKIP"
+    elif fake_risk >= 30:
+        a.fake_news_risk = max(a.fake_news_risk, 15)
+        a.reasons.append(f"elevated fake_risk ({fake_risk})")
+        if a.action_override != "SKIP":
             a.action_override = "WATCH"
 
     # Risk level

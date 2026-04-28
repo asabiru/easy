@@ -50,6 +50,16 @@ class Settings(BaseSettings):
     telegram_chat_id: str = ""
     telegram_enabled: bool = False
 
+    # X (Twitter) integration
+    x_api_bearer_token: str = ""
+    x_stream_enabled: bool = False
+    x_webhook_secret: str = ""  # Shared secret for /news/ingest/x
+
+    # Cross-source confirmation window
+    cross_source_use_redis: bool = False
+    cross_source_redis_url: str = ""
+    cross_source_window_sec: int = 90
+
     # Data files
     data_dir: Path = Field(default_factory=lambda: DATA_DIR)
 

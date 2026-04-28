@@ -90,9 +90,18 @@ def decide(
     symbol: str,
     market: MarketData,
     source_reliability: int,
+    fake_risk: int = 0,
+    confirmation_count: int = 1,
 ) -> SignalDecision:
     direction = classification.direction
     confidence = int(round(classification.confidence))
+
+    # Cross-source confirmation boost: 2nd independent source nudges confidence,
+    # 3rd+ gives a meaningful bump. Capped to avoid runaway sock-puppet inflation.
+    if confirmation_count >= 3:
+        confidence = min(100, confidence + 15)
+    elif confirmation_count == 2:
+        confidence = min(100, confidence + 8)
 
     risk: RiskAssessment = assess(
         impact_score=impact_score,
@@ -101,6 +110,7 @@ def decide(
         volume_5m=market.volume_5m,
         price_change_5m=market.price_change_5m,
         source_reliability=source_reliability,
+        fake_risk=fake_risk,
     )
 
     market_conf = _market_confirmation(direction, market.price_change_5m)

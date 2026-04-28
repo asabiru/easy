@@ -22,5 +22,15 @@
   "buyback":                {"keywords": ["buyback", "share repurchase", "repurchase program"],                                             "direction": "bullish", "impact": 55},
   "fraud_investigation":    {"keywords": ["fraud", "investigation into", "accounting irregularities", "doj probe"],                         "direction": "bearish", "impact": 90},
   "bankruptcy_risk":        {"keywords": ["bankruptcy", "chapter 11", "going concern", "insolvency"],                                       "direction": "bearish", "impact": 95},
-  "security_breach":        {"keywords": ["data breach", "hacked", "cyberattack", "ransomware"],                                            "direction": "bearish", "impact": 60}
+  "security_breach":        {"keywords": ["data breach", "hacked", "cyberattack", "ransomware"],                                            "direction": "bearish", "impact": 60},
+
+  "oil_price_spike":        {"keywords": ["oil price surges", "crude jumps", "brent spikes", "wti rallies", "oil rally"],                    "direction": "bullish", "impact": 60, "sectors": ["energy_oil_gas", "energy_services"]},
+  "oil_price_crash":        {"keywords": ["oil price crash", "crude plunges", "brent slumps", "wti falls", "oil tumbles"],                   "direction": "bearish", "impact": 60, "sectors": ["energy_oil_gas", "energy_services"]},
+  "opec_cut":               {"keywords": ["opec cuts", "opec+ cuts", "opec production cut", "opec extends cuts"],                            "direction": "bullish", "impact": 70, "sectors": ["energy_oil_gas", "energy_services"]},
+  "opec_increase":          {"keywords": ["opec raises output", "opec increases production", "opec adds barrels"],                           "direction": "bearish", "impact": 65, "sectors": ["energy_oil_gas", "energy_services"]},
+  "refinery_outage":        {"keywords": ["refinery fire", "refinery shutdown", "refinery outage", "refinery explosion"],                    "direction": "bullish", "impact": 65, "sectors": ["energy_oil_gas", "energy_services"]},
+  "pipeline_outage":        {"keywords": ["pipeline shutdown", "pipeline outage", "pipeline rupture", "pipeline leak"],                      "direction": "bullish", "impact": 60, "sectors": ["energy_oil_gas"]},
+  "lng_disruption":         {"keywords": ["lng outage", "lng shutdown", "lng terminal", "lng exports halted"],                                "direction": "bullish", "impact": 55, "sectors": ["energy_oil_gas"]},
+  "renewables_subsidy":     {"keywords": ["solar tax credit", "ira subsidy", "renewables subsidy", "ev tax credit", "ptc extended"],         "direction": "bullish", "impact": 55, "sectors": ["energy_renewables", "energy_utility"]},
+  "renewables_subsidy_cut": {"keywords": ["solar tariff", "tariffs on solar", "ira repeal", "subsidy cut", "ptc expires"],                   "direction": "bearish", "impact": 60, "sectors": ["energy_renewables"]}
 }

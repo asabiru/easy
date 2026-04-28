@@ -31,3 +31,24 @@ def test_prefers_specific_company_over_ambiguous():
     m = find_company("amazon expands aws region; mentions amd cpus briefly")
     assert m is not None
     assert m.company.ticker in ("AMZN", "AMD")  # both are valid candidates
+
+
+def test_finds_exxon_by_full_name():
+    m = find_company("exxonmobil reports record permian production for q3")
+    assert m is not None
+    assert m.company.ticker == "XOM"
+    assert m.company.exchange_symbol == "XOMUSDT"
+    assert m.company.sector == "energy_oil_gas"
+
+
+def test_finds_first_solar_by_ticker():
+    m = find_company("fslr ships first series 7 modules from ohio plant")
+    assert m is not None
+    assert m.company.ticker == "FSLR"
+    assert m.company.sector == "energy_renewables"
+
+
+def test_finds_chevron_by_executive_name():
+    m = find_company("mike wirth says hess acquisition will close in q4")
+    assert m is not None
+    assert m.company.ticker == "CVX"
