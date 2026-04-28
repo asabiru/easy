@@ -66,6 +66,11 @@ class Settings(BaseSettings):
     # required (see AutoTradeSubscription.live_trading_enabled).
     autotrade_encryption_key: str = ""  # 32-byte url-safe base64 (Fernet)
     autotrade_default_paper_days: int = 7
+
+    # Auth (JWT-cookie + role-based access control)
+    jwt_secret: str = ""
+    jwt_session_ttl_sec: int = 60 * 60 * 12
+    bootstrap_admin_email: str = ""  # optional: auto-promotes this email to admin on registration
     autotrade_default_max_position_pct: float = 0.10
     autotrade_default_daily_loss_limit_pct: float = 0.05
 

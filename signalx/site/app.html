@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dashboard · SignalX</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/panel.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <h1><span class="dot">S</span> SignalX</h1>
+      <nav>
+        <a href="/app.html" class="active">Overview</a>
+        <a href="#subs" data-tab="subs">My Subscriptions</a>
+        <a href="#trades" data-tab="trades">Recent Trades</a>
+        <a href="#settings" data-tab="settings">Settings</a>
+        <a href="/" target="_blank">↗ Public site</a>
+      </nav>
+      <div class="footer">
+        <div id="me-email" class="muted"></div>
+        <div style="margin-top:6px"><span id="me-role" class="role-pill">client</span></div>
+        <button onclick="SX.logout()" style="margin-top:10px;width:100%">Sign out</button>
+      </div>
+    </aside>
+    <main class="main">
+      <div class="topbar">
+        <h2 id="page-title">Welcome back</h2>
+        <div class="right">
+          <span class="muted">Auto-refresh every 10s</span>
+        </div>
+      </div>
+
+      <div id="alert-area"></div>
+
+      <section id="overview-section">
+        <div class="kpi-grid">
+          <div class="kpi"><div class="label">P&L today</div><div class="value" id="kpi-pnl">—</div></div>
+          <div class="kpi"><div class="label">Trades today</div><div class="value" id="kpi-trades">—</div></div>
+          <div class="kpi"><div class="label">Active subs</div><div class="value" id="kpi-subs">—</div></div>
+          <div class="kpi"><div class="label">Tier</div><div class="value" id="kpi-tier" style="font-size:18px">—</div></div>
+        </div>
+      </section>
+
+      <section id="subs-section" class="panel">
+        <h3>My subscriptions</h3>
+        <div style="margin-bottom:12px">
+          <a href="/signup.html" class="btn btn-primary">+ New subscription</a>
+        </div>
+        <table>
+          <thead><tr><th>ID</th><th>Tier</th><th>Exchange</th><th>Status</th><th>Live</th><th>Paper until</th><th>Actions</th></tr></thead>
+          <tbody id="subs-tbody"><tr><td colspan="7" class="empty">Loading…</td></tr></tbody>
+        </table>
+      </section>
+
+      <section id="trades-section" class="panel">
+        <h3>Recent orders</h3>
+        <table>
+          <thead><tr><th>Time</th><th>Sub</th><th>Mode</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Entry</th><th>Status</th><th>Reason</th></tr></thead>
+          <tbody id="orders-tbody"><tr><td colspan="9" class="empty">No orders yet — your subscription starts in paper mode.</td></tr></tbody>
+        </table>
+      </section>
+    </main>
+  </div>
+
+  <script src="/assets/config.js"></script>
+  <script src="/assets/panel.js"></script>
+  <script>
+    let cachedSubs = [];
+
+    async function loadMe() {
+      const u = await SX.me();
+      document.getElementById('me-email').textContent = u.email;
+      document.getElementById('me-role').textContent = u.role;
+      if (u.role === 'admin') location.href = '/admin.html';
+      else if (u.role === 'manager') location.href = '/manager.html';
+    }
+
+    async function loadSubs() {
+      const subs = await SX.api('/client/me/subscriptions');
+      cachedSubs = subs;
+      const tbody = document.getElementById('subs-tbody');
+      const active = subs.filter(s => s.status === 'paper' || s.status === 'live');
+      document.getElementById('kpi-subs').textContent = active.length;
+      document.getElementById('kpi-tier').textContent = subs[0]?.tier || '—';
+      if (subs.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="empty">No subscriptions yet — <a href="/signup.html" class="muted">create one →</a></td></tr>';
+        return;
+      }
+      tbody.innerHTML = subs.map(s => `
+        <tr>
+          <td class="mono">#${s.id}</td>
+          <td>${s.tier}</td>
+          <td class="mono">${s.exchange_id}</td>
+          <td>${SX.badge(s.status, s.status)}</td>
+          <td>${s.live_trading_enabled ? '<span class="badge badge-live">live</span>' : '<span class="badge badge-paper">paper</span>'}</td>
+          <td class="muted">${SX.fmtDt(s.paper_until)}</td>
+          <td>
+            <button class="btn-warn" onclick="paperMode(${s.id})">Paper</button>
+            <button class="btn-danger" onclick="killSub(${s.id})">Kill</button>
+            <button onclick="resumeSub(${s.id})">Resume</button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    async function loadOrders() {
+      let orders = [];
+      let pnl = 0, trades = 0;
+      for (const s of cachedSubs) {
+        try {
+          const detail = await SX.api(`/client/me/subscriptions/${s.id}`);
+          for (const o of detail.recent_orders || []) {
+            orders.push({...o, sub_id: s.id});
+          }
+          pnl += detail.pnl_today || 0;
+        } catch (e) {}
+      }
+      orders.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+      const today = new Date().toISOString().slice(0, 10);
+      trades = orders.filter(o => (o.created_at || '').startsWith(today)).length;
+      const k = document.getElementById('kpi-pnl');
+      k.textContent = SX.fmtMoney(pnl);
+      k.className = 'value ' + (pnl >= 0 ? 'pos' : 'neg');
+      document.getElementById('kpi-trades').textContent = trades;
+      const tbody = document.getElementById('orders-tbody');
+      if (orders.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="9" class="empty">No orders yet — your subscription starts in paper mode.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = orders.slice(0, 50).map(o => `
+        <tr>
+          <td class="muted">${SX.fmtDt(o.created_at)}</td>
+          <td class="mono">#${o.sub_id}</td>
+          <td>${SX.badge(o.mode, o.mode)}</td>
+          <td class="mono">${o.symbol}</td>
+          <td>${SX.badge(o.side === 'buy' ? 'long' : 'short', o.side)}</td>
+          <td class="mono">${o.qty?.toFixed(4) || '—'}</td>
+          <td class="mono">${o.entry_price?.toFixed(2) || '—'}</td>
+          <td>${SX.badge(o.status === 'rejected' ? 'rejected' : 'filled', o.status)}</td>
+          <td class="muted">${o.rejected_reason || '—'}</td>
+        </tr>
+      `).join('');
+    }
+
+    async function paperMode(id) { await SX.api(`/autotrade/${id}/paper-mode`, {method:'POST'}); refresh(); }
+    async function killSub(id)   { if (!confirm('Kill subscription #' + id + '? This stops all trading immediately.')) return;
+                                    await SX.api(`/autotrade/${id}/kill`, {method:'POST'}); refresh(); }
+    async function resumeSub(id) { await SX.api(`/autotrade/${id}/resume`, {method:'POST'}); refresh(); }
+    window.paperMode = paperMode; window.killSub = killSub; window.resumeSub = resumeSub;
+
+    async function refresh() { await loadSubs(); await loadOrders(); }
+
+    (async () => {
+      await loadMe();
+      await refresh();
+      setInterval(refresh, 10000);
+    })();
+  </script>
+</body>
+</html>

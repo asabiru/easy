@@ -130,6 +130,32 @@ def test_risk_guard_paper_mode_blocks_live_but_no_pause():
     assert decision.reason == "subscription is in paper mode"
 
 
+def test_subscribe_preserves_explicit_zero_for_min_signal_score(client):
+    """Regression: passing min_signal_score=0 must store 0, not the
+    default 60 — `or` would silently override it."""
+    from app.database.models import AutoTradeSubscription
+
+    r = client.post(
+        "/autotrade/subscribe",
+        json={
+            "email": "zero@example.com",
+            "tier": "auto_lite",
+            "exchange_id": "bybit",
+            "api_key": "ABCD1234EFGH",
+            "api_secret": "WXYZ9876MNOP",
+            "min_signal_score": 0,
+            "max_fake_risk": 0,
+            "max_position_pct": 0.0,
+        },
+    )
+    body = r.json()
+    rs = client.get(f"/autotrade/{body['subscription_id']}/status")
+    sub = rs.json()
+    assert sub["min_signal_score"] == 0
+    assert sub["max_fake_risk"] == 0
+    assert sub["max_position_pct"] == 0.0
+
+
 def test_signal_dispatch_creates_paper_order(client):
     """End-to-end: paper subscription + ingested news with high signal_score
     → AutoTradeOrder row recorded in paper mode (because the global kill

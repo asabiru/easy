@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Admin · SignalX</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/panel.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <h1><span class="dot">S</span> SignalX <span style="font-size:11px;color:var(--accent-3);font-weight:400;margin-left:6px">Admin</span></h1>
+      <nav id="tabs-nav">
+        <a data-tab="system" class="active">System</a>
+        <a data-tab="users">Users</a>
+        <a data-tab="subs">Subscriptions</a>
+        <a data-tab="signals">Signals</a>
+        <a data-tab="orders">Orders</a>
+        <a data-tab="audit">Audit</a>
+        <a href="/manager.html">↗ Manager view</a>
+        <a href="/app.html">↗ Client view</a>
+      </nav>
+      <div class="footer">
+        <div id="me-email" class="muted"></div>
+        <div style="margin-top:6px"><span id="me-role" class="role-pill" style="background:rgba(244,114,182,0.12);color:var(--accent-3)">admin</span></div>
+        <button onclick="SX.logout()" style="margin-top:10px;width:100%">Sign out</button>
+      </div>
+    </aside>
+    <main class="main">
+      <div class="topbar"><h2 id="page-title">System overview</h2><div class="right"><button onclick="loadCurrentTab()">Refresh</button></div></div>
+
+      <section data-tab="system">
+        <div class="kpi-grid" id="system-kpis"></div>
+        <div class="alert alert-warn" id="kill-warning" style="display:none">
+          <strong>Global autotrade kill switch is OFF.</strong> No subscription can place real orders, regardless of per-sub flags. Set <code>ENABLE_AUTOTRADE=true</code> in your env to allow live trading.
+        </div>
+      </section>
+
+      <section data-tab="users" hidden>
+        <div class="panel">
+          <h3>All users</h3>
+          <table>
+            <thead><tr><th>ID</th><th>Email</th><th>Role</th><th>Active</th><th>Created</th><th>Actions</th></tr></thead>
+            <tbody id="users-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section data-tab="subs" hidden>
+        <div class="panel">
+          <h3>All subscriptions</h3>
+          <table>
+            <thead><tr><th>ID</th><th>Email</th><th>Tier</th><th>Exchange</th><th>Status</th><th>Live</th><th>Caps</th><th>Created</th><th>Actions</th></tr></thead>
+            <tbody id="subs-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section data-tab="signals" hidden>
+        <div class="panel">
+          <h3>Recent signals</h3>
+          <table>
+            <thead><tr><th>ID</th><th>Created</th><th>Ticker</th><th>Symbol</th><th>Action</th><th>Score</th><th>Risk</th><th>Reason</th></tr></thead>
+            <tbody id="signals-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section data-tab="orders" hidden>
+        <div class="panel">
+          <h3>Recent autotrade orders</h3>
+          <table>
+            <thead><tr><th>ID</th><th>Created</th><th>Sub</th><th>Mode</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Status</th><th>Reason</th></tr></thead>
+            <tbody id="orders-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section data-tab="audit" hidden>
+        <div class="panel">
+          <h3>Audit log</h3>
+          <table>
+            <thead><tr><th>ID</th><th>When</th><th>Actor</th><th>Action</th><th>Target</th><th>Payload</th></tr></thead>
+            <tbody id="audit-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/assets/config.js"></script>
+  <script src="/assets/panel.js"></script>
+  <script>
+    let currentTab = 'system';
+
+    async function loadMe() {
+      const u = await SX.me();
+      document.getElementById('me-email').textContent = u.email;
+      if (u.role !== 'admin') location.href = '/app.html';
+    }
+
+    function setTab(name) {
+      currentTab = name;
+      document.querySelectorAll('#tabs-nav a').forEach(a => a.classList.toggle('active', a.dataset.tab === name));
+      document.querySelectorAll('section[data-tab]').forEach(s => s.hidden = s.dataset.tab !== name);
+      document.getElementById('page-title').textContent = ({
+        system: 'System overview', users: 'Users', subs: 'Subscriptions',
+        signals: 'Signals', orders: 'Orders', audit: 'Audit log'
+      })[name];
+      loadCurrentTab();
+    }
+
+    async function loadSystem() {
+      const r = await SX.api('/admin/system');
+      document.getElementById('system-kpis').innerHTML = `
+        <div class="kpi"><div class="label">Users</div><div class="value">${r.users_count}</div></div>
+        <div class="kpi"><div class="label">Subs Live</div><div class="value pos">${r.subs_live}</div></div>
+        <div class="kpi"><div class="label">Subs Paper</div><div class="value">${r.subs_paper}</div></div>
+        <div class="kpi"><div class="label">Subs Paused</div><div class="value" style="color:var(--warn)">${r.subs_paused}</div></div>
+        <div class="kpi"><div class="label">Subs Killed</div><div class="value neg">${r.subs_killed}</div></div>
+        <div class="kpi"><div class="label">Signals 24h</div><div class="value">${r.signals_24h}</div></div>
+        <div class="kpi"><div class="label">News 24h</div><div class="value">${r.news_events_24h}</div></div>
+        <div class="kpi"><div class="label">Open tickets</div><div class="value">${r.open_tickets}</div></div>
+        <div class="kpi"><div class="label">Investor leads</div><div class="value">${r.investor_leads_open}</div></div>
+        <div class="kpi"><div class="label">Global autotrade</div><div class="value" style="color:${r.global_autotrade_enabled ? 'var(--accent)' : 'var(--danger)'}">${r.global_autotrade_enabled ? 'ON' : 'OFF'}</div></div>
+        <div class="kpi"><div class="label">Telegram</div><div class="value" style="font-size:18px">${r.telegram_enabled ? 'enabled' : 'disabled'}</div></div>
+      `;
+      document.getElementById('kill-warning').style.display = r.global_autotrade_enabled ? 'none' : 'block';
+    }
+
+    async function loadUsers() {
+      const u = await SX.api('/admin/users');
+      document.getElementById('users-tbody').innerHTML = u.map(x => `
+        <tr>
+          <td class="mono">#${x.id}</td>
+          <td>${x.email}</td>
+          <td>
+            <select onchange="setRole(${x.id}, this.value)">
+              <option value="client" ${x.role==='client'?'selected':''}>client</option>
+              <option value="manager" ${x.role==='manager'?'selected':''}>manager</option>
+              <option value="admin" ${x.role==='admin'?'selected':''}>admin</option>
+            </select>
+          </td>
+          <td>${x.is_active ? '<span class="badge badge-live">active</span>' : '<span class="badge badge-killed">disabled</span>'}</td>
+          <td class="muted">${SX.fmtDt(x.created_at)}</td>
+          <td>${x.is_active ? `<button class="btn-danger" onclick="disableUser(${x.id})">Disable</button>` : ''}</td>
+        </tr>
+      `).join('');
+    }
+
+    async function loadSubs() {
+      const subs = await SX.api('/admin/subscriptions');
+      document.getElementById('subs-tbody').innerHTML = subs.map(s => `
+        <tr>
+          <td class="mono">#${s.id}</td>
+          <td>${s.email}</td>
+          <td>${s.tier}</td>
+          <td class="mono">${s.exchange_id}</td>
+          <td>${SX.badge(s.status, s.status)}</td>
+          <td>${s.live_trading_enabled ? '<span class="badge badge-live">yes</span>' : '<span class="badge badge-paper">no</span>'}</td>
+          <td class="mono">pos ${(s.max_position_pct*100).toFixed(0)}% / loss ${(s.daily_loss_limit_pct*100).toFixed(0)}%</td>
+          <td class="muted">${SX.fmtDt(s.created_at)}</td>
+          <td><button class="btn-danger" onclick="forceKill(${s.id})">Force kill</button></td>
+        </tr>
+      `).join('');
+    }
+
+    async function loadSignals() {
+      const sigs = await SX.api('/admin/signals');
+      document.getElementById('signals-tbody').innerHTML = sigs.map(s => `
+        <tr>
+          <td class="mono">#${s.id}</td>
+          <td class="muted">${SX.fmtDt(s.created_at)}</td>
+          <td>${s.ticker}</td>
+          <td class="mono">${s.symbol}</td>
+          <td>${SX.badge(s.action === 'LONG' ? 'long' : s.action === 'SHORT' ? 'short' : 'watch', s.action)}</td>
+          <td class="mono">${s.signal_score}</td>
+          <td>${s.risk_level || '—'}</td>
+          <td class="muted" style="max-width:340px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.reason || ''}</td>
+        </tr>
+      `).join('');
+    }
+
+    async function loadOrders() {
+      const os = await SX.api('/admin/orders');
+      document.getElementById('orders-tbody').innerHTML = os.map(o => `
+        <tr>
+          <td class="mono">#${o.id}</td>
+          <td class="muted">${SX.fmtDt(o.created_at)}</td>
+          <td class="mono">#${o.subscription_id}</td>
+          <td>${SX.badge(o.mode, o.mode)}</td>
+          <td class="mono">${o.symbol}</td>
+          <td>${SX.badge(o.side === 'buy' ? 'long' : 'short', o.side)}</td>
+          <td class="mono">${o.qty?.toFixed(4) || '—'}</td>
+          <td>${SX.badge(o.status === 'rejected' ? 'rejected' : 'filled', o.status)}</td>
+          <td class="muted">${o.rejected_reason || '—'}</td>
+        </tr>
+      `).join('');
+    }
+
+    async function loadAudit() {
+      const a = await SX.api('/admin/audit');
+      document.getElementById('audit-tbody').innerHTML = a.map(r => `
+        <tr>
+          <td class="mono">#${r.id}</td>
+          <td class="muted">${SX.fmtDt(r.created_at)}</td>
+          <td class="mono">#${r.actor_user_id || '—'}</td>
+          <td><span class="badge badge-new">${r.action}</span></td>
+          <td class="mono">${r.target_type || ''} ${r.target_id ? '#' + r.target_id : ''}</td>
+          <td class="muted mono" style="max-width:300px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.payload || ''}</td>
+        </tr>
+      `).join('');
+    }
+
+    async function setRole(id, role) { await SX.api(`/admin/users/${id}/role`, {method:'POST', body: JSON.stringify({role})}); loadUsers(); }
+    async function disableUser(id) { if (!confirm('Disable user #' + id + '?')) return; await SX.api(`/admin/users/${id}/disable`, {method:'POST'}); loadUsers(); }
+    async function forceKill(id) { if (!confirm('Force-kill subscription #' + id + '?')) return; await SX.api(`/admin/subscriptions/${id}/force-kill`, {method:'POST'}); loadSubs(); }
+    window.setRole = setRole; window.disableUser = disableUser; window.forceKill = forceKill;
+
+    function loadCurrentTab() {
+      ({system: loadSystem, users: loadUsers, subs: loadSubs, signals: loadSignals, orders: loadOrders, audit: loadAudit})[currentTab]();
+    }
+
+    document.querySelectorAll('#tabs-nav a[data-tab]').forEach(a => {
+      a.addEventListener('click', (e) => { e.preventDefault(); setTab(a.dataset.tab); });
+    });
+
+    (async () => { await loadMe(); setTab('system'); setInterval(loadCurrentTab, 15000); })();
+  </script>
+</body>
+</html>

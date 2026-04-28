@@ -16,7 +16,7 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 
 from app.config.settings import get_settings
-from app.database.models import SupportTicket
+from app.database.models import InvestorLead, SupportTicket
 from app.database.session import get_db
 from app.notifications.telegram import send as telegram_send
 
@@ -46,8 +46,20 @@ def onboarding_intent(payload: InvestorIntentIn, db: Session = Depends(get_db)) 
         message=f"[{payload.name}] {body}",
     )
     db.add(ticket)
+    lead = InvestorLead(
+        name=payload.name,
+        email=str(payload.email),
+        capital_band=payload.capital_band,
+        track=payload.track,
+        exchange=payload.exchange,
+        timeline=payload.timeline,
+        message=payload.message,
+        status="new",
+    )
+    db.add(lead)
     db.commit()
     db.refresh(ticket)
+    db.refresh(lead)
 
     s = get_settings()
     if s.telegram_enabled:
@@ -62,4 +74,4 @@ def onboarding_intent(payload: InvestorIntentIn, db: Session = Depends(get_db)) 
         except Exception as exc:  # pragma: no cover
             log.warning("telegram_send (investor) raised: %s", exc)
 
-    return {"ticket_id": ticket.id, "status": "received"}
+    return {"ticket_id": ticket.id, "lead_id": lead.id, "status": "received"}

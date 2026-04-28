@@ -1,8 +1,8 @@
 """Signal → order dispatcher.
 
 Pulls every active subscription matching a signal's filters (min_signal_score,
-max_fake_risk, allowed_symbols) and either places a paper or live order on
-the client's exchange.
+max_fake_risk via the linked NewsEvent, allowed_symbols) and either places
+a paper or live order on the client's exchange.
 
 Live execution is feature-flagged at three layers:
 
@@ -22,9 +22,14 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.autotrade.risk_guard import GuardDecision, daily_pnl, evaluate_pre_order
+from app.autotrade.risk_guard import (
+    GuardDecision,
+    daily_pnl,
+    evaluate_pre_order,
+    starting_of_day_balance,
+)
 from app.config.settings import get_settings
-from app.database.models import AutoTradeOrder, AutoTradeSubscription, Signal
+from app.database.models import AutoTradeOrder, AutoTradeSubscription, NewsEvent, Signal
 
 log = logging.getLogger(__name__)
 
@@ -56,6 +61,17 @@ def _maybe_execute(
     # Subscription-level filters
     if signal.signal_score < sub.min_signal_score:
         return None
+    if sub.max_fake_risk is not None and signal.event_id:
+        # fake_risk lives on NewsEvent; signals with fake_risk >=30 are already
+        # demoted to WATCH by the risk engine and never reach here, but a
+        # client may set max_fake_risk lower than that for extra caution.
+        fake_risk = (
+            db.query(NewsEvent.fake_risk)
+            .filter(NewsEvent.id == signal.event_id)
+            .scalar()
+        )
+        if fake_risk is not None and fake_risk > sub.max_fake_risk:
+            return None
     if sub.allowed_symbols:
         try:
             allowed = set(json.loads(sub.allowed_symbols))
@@ -73,7 +89,14 @@ def _maybe_execute(
         .all()
     )
     pnl_today = daily_pnl(recent)
-    starting_balance = (recent[-1].balance_before if recent else DEFAULT_PAPER_BALANCE) or DEFAULT_PAPER_BALANCE
+    # Use the start-of-day balance so daily-loss-limit is computed against
+    # today's open, not the oldest balance in the recent-50 window.
+    today_open = starting_of_day_balance(recent)
+    starting_balance = (
+        today_open
+        or (recent[-1].balance_before if recent else None)
+        or DEFAULT_PAPER_BALANCE
+    )
     free_balance = (recent[0].balance_after if recent else DEFAULT_PAPER_BALANCE) or DEFAULT_PAPER_BALANCE
 
     proposed_notional = free_balance * sub.max_position_pct

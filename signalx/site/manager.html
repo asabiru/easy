@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Manager · SignalX</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/panel.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <h1><span class="dot">S</span> SignalX <span style="font-size:11px;color:var(--text-dim);font-weight:400;margin-left:6px">Manager</span></h1>
+      <nav>
+        <a href="/manager.html" class="active">Investor leads</a>
+        <a href="/app.html">↗ Client view</a>
+        <a href="/" target="_blank">↗ Public site</a>
+      </nav>
+      <div class="footer">
+        <div id="me-email" class="muted"></div>
+        <div style="margin-top:6px"><span id="me-role" class="role-pill">manager</span></div>
+        <button onclick="SX.logout()" style="margin-top:10px;width:100%">Sign out</button>
+      </div>
+    </aside>
+    <main class="main">
+      <div class="topbar">
+        <h2>Investor leads · CRM</h2>
+        <div class="right row">
+          <select id="status-filter">
+            <option value="">All statuses</option>
+            <option value="new">New</option>
+            <option value="contacted">Contacted</option>
+            <option value="qualified">Qualified</option>
+            <option value="onboarded">Onboarded</option>
+            <option value="lost">Lost</option>
+          </select>
+          <label class="muted" style="font-size:12px"><input type="checkbox" id="mine-filter" /> Mine only</label>
+          <button onclick="loadLeads()">Refresh</button>
+        </div>
+      </div>
+
+      <div class="kpi-grid">
+        <div class="kpi"><div class="label">Total leads</div><div class="value" id="kpi-total">—</div></div>
+        <div class="kpi"><div class="label">New</div><div class="value" id="kpi-new">—</div></div>
+        <div class="kpi"><div class="label">Qualified</div><div class="value pos" id="kpi-qual">—</div></div>
+        <div class="kpi"><div class="label">Onboarded</div><div class="value pos" id="kpi-on">—</div></div>
+      </div>
+
+      <div class="panel">
+        <h3>All investor leads</h3>
+        <table>
+          <thead><tr><th>ID</th><th>Created</th><th>Name</th><th>Email</th><th>Capital</th><th>Track</th><th>Timeline</th><th>Status</th><th>Assigned</th><th></th></tr></thead>
+          <tbody id="leads-tbody"><tr><td colspan="10" class="empty">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+
+  <!-- Lead detail modal -->
+  <div id="modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:50;align-items:center;justify-content:center">
+    <div style="width:560px;max-width:92vw;background:var(--bg-2);border:1px solid var(--line);border-radius:14px;padding:24px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h3 style="margin:0">Lead detail</h3>
+        <button onclick="closeModal()">×</button>
+      </div>
+      <div id="modal-body" style="margin-top:16px"></div>
+    </div>
+  </div>
+
+  <script src="/assets/config.js"></script>
+  <script src="/assets/panel.js"></script>
+  <script>
+    async function loadMe() {
+      const u = await SX.me();
+      document.getElementById('me-email').textContent = u.email;
+      document.getElementById('me-role').textContent = u.role;
+      if (u.role !== 'manager' && u.role !== 'admin') location.href = '/app.html';
+    }
+
+    async function loadLeads() {
+      const status = document.getElementById('status-filter').value;
+      const mine = document.getElementById('mine-filter').checked;
+      const qs = new URLSearchParams();
+      if (status) qs.set('status', status);
+      if (mine) qs.set('mine', 'true');
+      const leads = await SX.api('/manager/leads' + (qs.toString() ? '?' + qs : ''));
+      document.getElementById('kpi-total').textContent = leads.length;
+      document.getElementById('kpi-new').textContent = leads.filter(l => l.status === 'new').length;
+      document.getElementById('kpi-qual').textContent = leads.filter(l => l.status === 'qualified').length;
+      document.getElementById('kpi-on').textContent = leads.filter(l => l.status === 'onboarded').length;
+      const tbody = document.getElementById('leads-tbody');
+      if (leads.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="10" class="empty">No leads yet.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = leads.map(l => `
+        <tr style="cursor:pointer" onclick="openLead(${l.id})">
+          <td class="mono">#${l.id}</td>
+          <td class="muted">${SX.fmtDt(l.created_at)}</td>
+          <td>${l.name || '—'}</td>
+          <td class="muted">${l.email}</td>
+          <td class="mono">${l.capital_band || '—'}</td>
+          <td class="mono">${l.track || '—'}</td>
+          <td class="mono">${l.timeline || '—'}</td>
+          <td>${SX.badge(l.status, l.status)}</td>
+          <td class="muted">${l.assigned_manager_id ? '#' + l.assigned_manager_id : '—'}</td>
+          <td>→</td>
+        </tr>
+      `).join('');
+    }
+
+    async function openLead(id) {
+      const l = await SX.api(`/manager/leads/${id}`);
+      const body = document.getElementById('modal-body');
+      body.innerHTML = `
+        <div class="row" style="gap:24px;margin-bottom:14px">
+          <div><div class="muted" style="font-size:11px;text-transform:uppercase">Name</div><div>${l.name || '—'}</div></div>
+          <div><div class="muted" style="font-size:11px;text-transform:uppercase">Email</div><div class="mono">${l.email}</div></div>
+        </div>
+        <div class="row" style="gap:24px;margin-bottom:14px">
+          <div><div class="muted" style="font-size:11px;text-transform:uppercase">Capital</div><div class="mono">${l.capital_band || '—'}</div></div>
+          <div><div class="muted" style="font-size:11px;text-transform:uppercase">Track</div><div class="mono">${l.track || '—'}</div></div>
+          <div><div class="muted" style="font-size:11px;text-transform:uppercase">Timeline</div><div class="mono">${l.timeline || '—'}</div></div>
+          <div><div class="muted" style="font-size:11px;text-transform:uppercase">Status</div>${SX.badge(l.status, l.status)}</div>
+        </div>
+        ${l.message ? `<div class="alert alert-info"><strong>Message:</strong><br/>${l.message}</div>` : ''}
+        ${l.notes ? `<div class="panel" style="margin:8px 0;padding:12px"><div class="muted" style="font-size:11px;text-transform:uppercase;margin-bottom:6px">Notes</div><pre style="white-space:pre-wrap;margin:0;font-size:13px">${l.notes}</pre></div>` : ''}
+        <hr/>
+        <div class="row">
+          <select id="new-status">
+            <option value="new">new</option>
+            <option value="contacted">contacted</option>
+            <option value="qualified">qualified</option>
+            <option value="onboarded">onboarded</option>
+            <option value="lost">lost</option>
+          </select>
+          <label class="muted"><input type="checkbox" id="assign-me" /> Assign to me</label>
+        </div>
+        <textarea id="note-text" rows="3" placeholder="Append a note (visible to all managers)" style="width:100%;margin-top:10px"></textarea>
+        <div class="row" style="margin-top:10px;justify-content:flex-end">
+          <button class="btn-primary" onclick="saveLead(${l.id})">Save</button>
+        </div>
+      `;
+      document.getElementById('new-status').value = l.status;
+      document.getElementById('modal').style.display = 'flex';
+    }
+    function closeModal() { document.getElementById('modal').style.display = 'none'; }
+    window.openLead = openLead; window.closeModal = closeModal;
+
+    async function saveLead(id) {
+      const payload = {
+        status: document.getElementById('new-status').value,
+        assign_to_me: document.getElementById('assign-me').checked,
+        note_append: document.getElementById('note-text').value || null,
+      };
+      await SX.api(`/manager/leads/${id}`, {method:'POST', body: JSON.stringify(payload)});
+      closeModal();
+      loadLeads();
+    }
+    window.saveLead = saveLead;
+
+    document.getElementById('status-filter').addEventListener('change', loadLeads);
+    document.getElementById('mine-filter').addEventListener('change', loadLeads);
+
+    (async () => { await loadMe(); await loadLeads(); setInterval(loadLeads, 30000); })();
+  </script>
+</body>
+</html>

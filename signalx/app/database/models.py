@@ -114,6 +114,59 @@ class SignalResult(Base):
     signal = relationship("Signal", back_populates="result")
 
 
+class User(Base):
+    """Authenticated user. Roles: client (default), manager, admin."""
+
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    email = Column(String(256), unique=True, nullable=False, index=True)
+    password_hash = Column(String(256), nullable=False)
+    role = Column(String(16), nullable=False, default="client", index=True)
+    full_name = Column(String(128), nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True)
+
+
+class InvestorLead(Base):
+    """Manager-tracked CRM record for HNW investor outreach.
+
+    Created either explicitly via /investors/onboarding-intent (which also
+    spawns a SupportTicket) or imported manually by a manager. Status moves
+    new → contacted → qualified → onboarded → lost. Notes is append-only
+    free text."""
+
+    __tablename__ = "investor_leads"
+
+    id = Column(Integer, primary_key=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    name = Column(String(256), nullable=False)
+    email = Column(String(256), nullable=False, index=True)
+    capital_band = Column(String(16), nullable=True)
+    track = Column(String(32), nullable=True)
+    exchange = Column(String(32), nullable=True)
+    timeline = Column(String(16), nullable=True)
+    message = Column(Text, nullable=True)
+    status = Column(String(16), nullable=False, default="new", index=True)
+    assigned_manager_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    notes = Column(Text, nullable=True)
+
+
+class AuditLog(Base):
+    """Append-only audit trail for sensitive admin/manager actions."""
+
+    __tablename__ = "audit_log"
+
+    id = Column(Integer, primary_key=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    actor_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    action = Column(String(64), nullable=False, index=True)
+    target_type = Column(String(32), nullable=True)
+    target_id = Column(Integer, nullable=True)
+    payload = Column(Text, nullable=True)
+
+
 class AutoTradeSubscription(Base):
     """A paying client's auto-trade configuration. We store the encrypted
     API key/secret (Fernet) on this row plus risk parameters and the
@@ -126,6 +179,7 @@ class AutoTradeSubscription(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     email = Column(String(256), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     tier = Column(String(16), nullable=False)  # manual_plus / auto_lite / auto_pro / vip
 
     exchange_id = Column(String(32), nullable=False)  # bybit / binance / okx / ...
