@@ -114,6 +114,63 @@ class SignalResult(Base):
     signal = relationship("Signal", back_populates="result")
 
 
+class AutoTradeSubscription(Base):
+    """A paying client's auto-trade configuration. We store the encrypted
+    API key/secret (Fernet) on this row plus risk parameters and the
+    paper-vs-live status. Live trading requires `live_trading_enabled=True`
+    AND the global `Settings.enable_autotrade=True`."""
+
+    __tablename__ = "autotrade_subscriptions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    email = Column(String(256), nullable=False, index=True)
+    tier = Column(String(16), nullable=False)  # manual_plus / auto_lite / auto_pro / vip
+
+    exchange_id = Column(String(32), nullable=False)  # bybit / binance / okx / ...
+    api_key_encrypted = Column(Text, nullable=True)
+    api_secret_encrypted = Column(Text, nullable=True)
+    api_passphrase_encrypted = Column(Text, nullable=True)  # OKX-style needs passphrase
+
+    # Risk parameters; defaults filled from Settings on create.
+    max_position_pct = Column(Float, nullable=False, default=0.10)
+    daily_loss_limit_pct = Column(Float, nullable=False, default=0.05)
+    min_signal_score = Column(Integer, nullable=False, default=60)
+    max_fake_risk = Column(Integer, nullable=False, default=49)
+    allowed_symbols = Column(Text, nullable=True)  # JSON list; null = all
+
+    # Status: paper, live, paused, killed
+    status = Column(String(16), nullable=False, default="paper", index=True)
+    live_trading_enabled = Column(Boolean, nullable=False, default=False)
+    paper_until = Column(DateTime, nullable=True)
+    last_paused_reason = Column(Text, nullable=True)
+
+
+class AutoTradeOrder(Base):
+    """Per-signal execution record (paper or live)."""
+
+    __tablename__ = "autotrade_orders"
+
+    id = Column(Integer, primary_key=True, index=True)
+    subscription_id = Column(Integer, ForeignKey("autotrade_subscriptions.id", ondelete="CASCADE"), nullable=False, index=True)
+    signal_id = Column(Integer, ForeignKey("signals.id", ondelete="SET NULL"), nullable=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    mode = Column(String(8), nullable=False)  # paper / live
+    symbol = Column(String(32), nullable=False)
+    side = Column(String(8), nullable=False)  # buy / sell
+    qty = Column(Float, nullable=False)
+    entry_price = Column(Float, nullable=False)
+    stop_loss = Column(Float, nullable=True)
+    take_profit = Column(Float, nullable=True)
+    status = Column(String(16), nullable=False, default="filled")  # filled / rejected / closed
+    rejected_reason = Column(Text, nullable=True)
+    realized_pnl = Column(Float, nullable=True)
+    balance_before = Column(Float, nullable=True)
+    balance_after = Column(Float, nullable=True)
+    exchange_order_id = Column(String(64), nullable=True)
+
+
 class SupportTicket(Base):
     __tablename__ = "support_tickets"
 

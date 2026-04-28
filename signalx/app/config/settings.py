@@ -60,6 +60,15 @@ class Settings(BaseSettings):
     cross_source_redis_url: str = ""
     cross_source_window_sec: int = 90
 
+    # Auto-trade subscription module. `enable_autotrade` (above) is the
+    # *global* hard kill — even with a subscription opt-in, no real orders
+    # are placed unless this is true. Per-subscription opt-in is also
+    # required (see AutoTradeSubscription.live_trading_enabled).
+    autotrade_encryption_key: str = ""  # 32-byte url-safe base64 (Fernet)
+    autotrade_default_paper_days: int = 7
+    autotrade_default_max_position_pct: float = 0.10
+    autotrade_default_daily_loss_limit_pct: float = 0.05
+
     # Data files
     data_dir: Path = Field(default_factory=lambda: DATA_DIR)
 

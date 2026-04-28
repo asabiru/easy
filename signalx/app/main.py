@@ -5,7 +5,14 @@ import logging
 
 from fastapi import FastAPI
 
-from app.api import routes_health, routes_news, routes_signals, routes_support
+from app.api import (
+    routes_autotrade,
+    routes_health,
+    routes_investors,
+    routes_news,
+    routes_signals,
+    routes_support,
+)
 from app.config.settings import get_settings
 from app.database.session import init_db
 
@@ -39,6 +46,8 @@ def create_app() -> FastAPI:
     app.include_router(routes_news.router, tags=["news"])
     app.include_router(routes_signals.router, tags=["signals"])
     app.include_router(routes_support.router, tags=["support"])
+    app.include_router(routes_autotrade.router, tags=["autotrade"])
+    app.include_router(routes_investors.router, tags=["investors"])
     return app
 
 

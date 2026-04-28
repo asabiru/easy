@@ -228,6 +228,15 @@ def _run_pipeline(
         except Exception as exc:  # pragma: no cover - defensive
             log.warning("telegram_send raised: %s", exc)
 
+    # Auto-trade dispatch — fire orders into every eligible subscription
+    # (paper or live, gated by per-sub + global feature flags + risk guards).
+    if decision.action in ("LONG", "SHORT"):
+        try:
+            from app.autotrade.executor import dispatch_signal_to_subscriptions
+            dispatch_signal_to_subscriptions(db, signal)
+        except Exception as exc:  # pragma: no cover - defensive
+            log.warning("autotrade dispatch raised: %s", exc)
+
     # End-to-end latency: receive → signal emitted.
     latency_ms = None
     if normalized.received_at is not None:
