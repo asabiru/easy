@@ -70,8 +70,18 @@ class SubscribeIn(BaseModel):
 def subscribe(
     payload: SubscribeIn,
     db: Session = Depends(get_db),
-    user: User | None = Depends(get_current_user_optional),
+    user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
+    """Create a paper-mode auto-trade subscription for the calling user.
+
+    Authentication is required (CLAUDE.md Rule 3 + security SKILL.md A01):
+    this endpoint stores encrypted exchange API credentials and ties them
+    to a user identity, so an anonymous subscribe path would (a) leak
+    paper-order signal data to whoever can spam the endpoint, and (b)
+    leave orphaned subscription rows that can't be deleted via the
+    user-scoped endpoints. Frontend signup flow logs the user in first
+    (POST /auth/register → token → POST /autotrade/subscribe).
+    """
     s = get_settings()
     sub = AutoTradeSubscription(
         # Always store the local-part lowercased so that downstream
@@ -79,7 +89,7 @@ def subscribe(
         # lowercases on registration) match in case-sensitive databases
         # like Postgres.
         email=str(payload.email).lower(),
-        user_id=user.id if user else None,
+        user_id=user.id,
         tier=payload.tier,
         exchange_id=payload.exchange_id.lower(),
         api_key_encrypted=encrypt(payload.api_key),

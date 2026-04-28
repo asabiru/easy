@@ -82,6 +82,26 @@
   <script src="/assets/config.js"></script>
   <script src="/assets/panel.js"></script>
   <script>
+    // Authentication is required: /autotrade/subscribe stores encrypted
+    // exchange API credentials and ties them to the calling user's id.
+    // Redirect anonymous visitors to /login.html with return path so they
+    // come back here once authed.
+    if (!localStorage.getItem('signalx_token')) {
+      const ret = encodeURIComponent('/signup.html' + location.search);
+      window.location.href = '/login.html?return=' + ret;
+    }
+
+    // Pre-fill email from the logged-in user if /auth/me returns it,
+    // and lock the field so the subscription is created against the same
+    // identity the backend authorisation will see.
+    SX.me().then(u => {
+      if (u && u.email) {
+        const el = document.querySelector('[name="email"]');
+        el.value = u.email;
+        el.readOnly = true;
+      }
+    }).catch(() => {});
+
     const form = document.getElementById('signup-form');
     const params = new URLSearchParams(location.search);
     if (params.get('tier')) form.querySelector('[name="tier"]').value = params.get('tier');

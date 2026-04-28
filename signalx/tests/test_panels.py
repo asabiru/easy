@@ -42,14 +42,23 @@ def test_subscription_email_lowercased_for_case_insensitive_ownership(client_wit
     client, db_session = client_with_db
     """Regression for BUG_pr-review-job-c8f76a0a7ea14148af0c2e1080f31a5f_0001/0002/0003.
 
-    A subscription created anonymously with mixed-case email must still
-    be visible and own-able by a user whose account email is the
-    lowercased version (routes_auth always lowercases on register)."""
+    /autotrade/subscribe now requires auth (anonymous subscribe was a
+    real security bug — see BUG_pr-review-job-e1afda66785e4b3fb669e417dec58b5c_0001).
+    The remaining email-case invariant is that a logged-in user posting
+    a mixed-case email still ends up with a lowercased email on the
+    subscription row, so downstream email-based ownership fallback
+    (used for legacy rows where user_id is NULL) keeps working
+    case-insensitively against routes_auth's lowercased registration.
+    """
     from app.database.models import AutoTradeSubscription
-    from app.auth.security import hash_password
-    from app.database.models import User
 
-    # Anonymous (no auth) subscribe with mixed-case email
+    # Register (auth lowercases the email) and log in.
+    r = client.post("/auth/register", json={"email": "Alice@Example.com", "password": "pw1234567"})
+    assert r.status_code == 200
+    r = client.post("/auth/login", json={"email": "alice@example.com", "password": "pw1234567"})
+    assert r.status_code == 200
+
+    # Authenticated subscribe with mixed-case email payload.
     r = client.post("/autotrade/subscribe", json={
         "email": "Alice@Example.com",
         "tier": "auto_lite",
@@ -60,23 +69,21 @@ def test_subscription_email_lowercased_for_case_insensitive_ownership(client_wit
     assert r.status_code == 200, r.text
     sub_id = r.json()["subscription_id"]
 
-    # The stored email should be lowercased
-    sub = db_session.query(AutoTradeSubscription).filter(AutoTradeSubscription.id == sub_id).first()
+    # The stored email should be lowercased.
+    sub = (
+        db_session.query(AutoTradeSubscription)
+        .filter(AutoTradeSubscription.id == sub_id)
+        .first()
+    )
     assert sub.email == "alice@example.com"
+    # And the subscription must be linked to the user_id (primary path).
+    assert sub.user_id is not None
 
-    # Now register Alice (auth always lowercases) and log in
-    r = client.post("/auth/register", json={"email": "Alice@Example.com", "password": "pw1234567"})
-    assert r.status_code == 200
-    r = client.post("/auth/login", json={"email": "alice@example.com", "password": "pw1234567"})
-    assert r.status_code == 200
-
-    # /client/me/subscriptions must list the anonymous-subscribe row
+    # /client/me/subscriptions must list it and detail must be readable.
     r = client.get("/client/me/subscriptions")
     assert r.status_code == 200
     ids = [s["id"] for s in r.json()]
     assert sub_id in ids
-
-    # /client/me/subscriptions/{id} must succeed (not 403)
     r = client.get(f"/client/me/subscriptions/{sub_id}")
     assert r.status_code == 200
 

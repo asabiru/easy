@@ -27,7 +27,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.auth.deps import get_current_user
+from app.auth.deps import get_current_user, require_role
 from app.database.models import Referral, User
 from app.database.session import get_db
 from app.security.rate_limit import referral_limiter
@@ -93,18 +93,14 @@ def my_referral(
 @router.get("/admin/referrals")
 def admin_referrals(
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_role("manager")),
     limit: int = 200,
 ) -> dict[str, Any]:
     """Aggregate referral stats for the admin dashboard.
 
-    Admin or manager only. Returns a leaderboard of top referrers and
-    the last `limit` referral rows.
+    Admin or manager only. `require_role("manager")` accepts both manager
+    and admin roles (admin is treated as a strict superset).
     """
-    if user.role not in ("admin", "manager"):
-        from fastapi import HTTPException
-
-        raise HTTPException(status_code=403, detail="manager+ required")
 
     leaderboard_rows = (
         db.query(
