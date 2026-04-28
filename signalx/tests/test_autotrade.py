@@ -396,3 +396,79 @@ def test_starting_of_day_balance_returns_none_when_empty():
         created_at = None
         balance_before = None
     assert starting_of_day_balance([Stub()]) is None
+
+
+def test_max_position_cap_actually_rejects_oversized_orders(db_session):
+    """Regression for BUG_pr-review-job-2c2ebe1fc6814cffacdc1da6619c82de_0001.
+
+    Sizing must scale by signal_score so the cap-guard has something real
+    to enforce. A score-100 signal sizes to the cap; score-0 sizes to zero;
+    and we never produce proposed_notional > notional_cap (the guard would
+    never trigger if we did)."""
+    from datetime import datetime
+    from app.autotrade.executor import _maybe_execute
+    from app.database.models import (
+        AutoTradeOrder,
+        AutoTradeSubscription,
+        NewsEvent,
+        Signal,
+    )
+
+    sub = AutoTradeSubscription(
+        email="cap@example.com",
+        tier="auto_lite",
+        exchange_id="bybit",
+        api_key_encrypted="x" * 16,
+        api_secret_encrypted="x" * 16,
+        status="paper",
+        live_trading_enabled=False,
+        max_position_pct=0.10,
+        daily_loss_limit_pct=0.05,
+        min_signal_score=50,
+    )
+    db_session.add(sub)
+    db_session.commit()
+    db_session.refresh(sub)
+
+    seed = AutoTradeOrder(
+        subscription_id=sub.id, signal_id=None, mode="paper", symbol="NVDAUSDT",
+        side="buy", qty=0.0, entry_price=0.0, balance_before=10000.0,
+        balance_after=10000.0, realized_pnl=0.0, status="filled",
+        created_at=datetime.utcnow(),
+    )
+    db_session.add(seed)
+    ev = NewsEvent(
+        source="reuters", source_url=None, raw_text="x", normalized_text="x",
+        text_hash="hcap", company="NVIDIA", ticker="NVDA",
+    )
+    db_session.add(ev)
+    db_session.commit()
+    db_session.refresh(ev)
+
+    # Score 100 → cap-equal sizing
+    sig_full = Signal(
+        event_id=ev.id, ticker="NVDA", symbol="NVDAUSDT", direction="bullish",
+        action="LONG", signal_score=100, entry_price=100.0, status="new",
+    )
+    db_session.add(sig_full)
+    db_session.commit()
+    db_session.refresh(sig_full)
+    o = _maybe_execute(db_session, sub, sig_full)
+    # paper mode → recorded as filled
+    assert o is not None
+    expected_notional_full = 10000.0 * 0.10 * 1.0  # 1000
+    assert abs(o.qty * o.entry_price - expected_notional_full) < 1.0
+
+    # Score 50 → half the cap
+    sig_half = Signal(
+        event_id=ev.id, ticker="NVDA", symbol="NVDAUSDT", direction="bullish",
+        action="LONG", signal_score=50, entry_price=100.0, status="new",
+    )
+    db_session.add(sig_half)
+    db_session.commit()
+    db_session.refresh(sig_half)
+    o = _maybe_execute(db_session, sub, sig_half)
+    assert o is not None
+    # min_signal_score is 50 so it's eligible; sizing should be 5% notional
+    expected_notional_half = 10000.0 * 0.10 * 0.50  # 500
+    assert abs(o.qty * o.entry_price - expected_notional_half) < 1.0

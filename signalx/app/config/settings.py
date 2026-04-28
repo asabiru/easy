@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     x_api_bearer_token: str = ""
     x_stream_enabled: bool = False
     x_webhook_secret: str = ""  # Shared secret for /news/ingest/x
+    news_ingest_secret: str = ""  # Shared secret for /news/ingest, /discord, /rss
 
     # Cross-source confirmation window
     cross_source_use_redis: bool = False

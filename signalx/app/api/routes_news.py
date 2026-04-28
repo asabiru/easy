@@ -269,13 +269,35 @@ def _run_pipeline(
 # --------------------------------------------------------------------------- #
 # Endpoints                                                                    #
 # --------------------------------------------------------------------------- #
+def _verify_news_ingest_secret(x_signature: str | None) -> None:
+    """All public webhook ingest endpoints can fire signals AND dispatch
+    autotrade orders into every eligible subscription. They MUST be
+    protected — see CLAUDE.md rule 3 + .agents/skills/security/SKILL.md.
+
+    If `news_ingest_secret` is unset (typical local dev) we let the call
+    through so tests / smoke flows still work. In any non-empty config
+    the header MUST match in constant time. (BUG_0003 in
+    pr-review-job-2c2ebe1fc6814cffacdc1da6619c82de.)
+    """
+    secret = get_settings().news_ingest_secret
+    if not secret:
+        return
+    if not hmac.compare_digest(x_signature or "", secret):
+        raise HTTPException(status_code=401, detail="invalid X-Signature")
+
+
 @router.post("/news/ingest")
-def ingest_news(payload: NewsIngest, db: Session = Depends(get_db)) -> dict[str, Any]:
+def ingest_news(
+    payload: NewsIngest,
+    db: Session = Depends(get_db),
+    x_signature: str | None = Header(default=None, alias="X-Signature"),
+) -> dict[str, Any]:
     """Generic news webhook (RSS, manual, press release).
 
     Author metadata is unknown → AuthorMeta() neutral, fake_risk gets a
     baseline score driven mainly by source reliability + linguistic markers.
     """
+    _verify_news_ingest_secret(x_signature)
     return _run_pipeline(
         db=db,
         raw_payload=payload.model_dump(),
@@ -331,10 +353,7 @@ def ingest_news_discord(
 ) -> dict[str, Any]:
     """Discord-relay webhook. Same shape as X but no follower/age metadata —
     fake_risk falls back to the linguistic + cross-source layer."""
-    s = get_settings()
-    secret = s.x_webhook_secret  # we re-use the same shared-secret slot
-    if secret and not hmac.compare_digest(x_signature or "", secret):
-        raise HTTPException(status_code=401, detail="invalid X-Signature")
+    _verify_news_ingest_secret(x_signature)
 
     raw_payload = {
         "source": f"discord:{payload.channel.lower()}",
@@ -354,9 +373,11 @@ def ingest_news_discord(
 def ingest_news_rss(
     payload: RSSIngest,
     db: Session = Depends(get_db),
+    x_signature: str | None = Header(default=None, alias="X-Signature"),
 ) -> dict[str, Any]:
     """Generic RSS / Atom item passthrough — the external poller has already
     de-duplicated by entry-id; we still apply our normalized-text dedup."""
+    _verify_news_ingest_secret(x_signature)
     raw_payload = {
         "source": payload.feed_id.lower(),
         "source_url": payload.entry_url,

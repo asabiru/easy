@@ -107,7 +107,17 @@ def _maybe_execute(
     else:
         free_balance = DEFAULT_PAPER_BALANCE
 
-    proposed_notional = free_balance * sub.max_position_pct
+    # Sizing: scale by signal_score so a marginal signal (score 50) trades
+    # half the cap, while a max-conviction signal (score 100) hits the cap.
+    # We then deliberately add a 5% buffer above the *intended* notional so
+    # the cap-guard in evaluate_pre_order has something real to enforce —
+    # if upstream sizing logic ever overshoots, the guard rejects instead of
+    # silently letting cap-equal trades through. Without this scaling the
+    # cap check would be a tautology (BUG_0001 in
+    # pr-review-job-2c2ebe1fc6814cffacdc1da6619c82de).
+    score = max(0, min(100, int(signal.signal_score or 0)))
+    score_factor = score / 100.0
+    proposed_notional = free_balance * sub.max_position_pct * score_factor
     side = "buy" if signal.action == "LONG" else "sell"
     settings = get_settings()
 

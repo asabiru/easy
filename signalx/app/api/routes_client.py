@@ -20,14 +20,21 @@ def my_subscriptions(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> list[dict[str, Any]]:
-    # Use func.lower on both sides so the lookup is case-insensitive in
-    # Postgres (= is case-sensitive there). Defense in depth on top of
-    # the storage-side normalization in routes_autotrade.subscribe.
+    # Two-clause filter mirrors _own_or_admin in routes_autotrade.py:
+    #   - rows owned by user_id (any email)
+    #   - rows with NULL user_id whose email matches (anonymous-then-claimed)
+    # We deliberately do NOT match by email when user_id is set on the row,
+    # otherwise User A could grant User B read access just by typing B's
+    # email at subscribe-time. (BUG_0002 in
+    # pr-review-job-2c2ebe1fc6814cffacdc1da6619c82de.)
     rows = (
         db.query(AutoTradeSubscription)
         .filter(
             (AutoTradeSubscription.user_id == user.id)
-            | (func.lower(AutoTradeSubscription.email) == (user.email or "").lower())
+            | (
+                AutoTradeSubscription.user_id.is_(None)
+                & (func.lower(AutoTradeSubscription.email) == (user.email or "").lower())
+            )
         )
         .order_by(AutoTradeSubscription.created_at.desc())
         .all()
@@ -77,8 +84,16 @@ def _own_sub(db: Session, user: User, sub_id: int) -> AutoTradeSubscription:
     )
     if sub is None:
         raise HTTPException(status_code=404, detail="subscription not found")
-    if sub.user_id != user.id and (sub.email or "").lower() != (user.email or "").lower():
-        raise HTTPException(status_code=403, detail="not your subscription")
+    # Mirror _own_or_admin: email match is only a fallback for anonymous
+    # subscriptions (user_id IS NULL), never an alternative to user_id
+    # ownership. Otherwise an attacker could subscribe with a victim's
+    # email and read their trade history.
+    if sub.user_id is not None:
+        if sub.user_id != user.id:
+            raise HTTPException(status_code=403, detail="not your subscription")
+    else:
+        if (sub.email or "").lower() != (user.email or "").lower():
+            raise HTTPException(status_code=403, detail="not your subscription")
     return sub
 
 

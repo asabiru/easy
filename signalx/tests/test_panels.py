@@ -79,3 +79,50 @@ def test_subscription_email_lowercased_for_case_insensitive_ownership(client_wit
     # /client/me/subscriptions/{id} must succeed (not 403)
     r = client.get(f"/client/me/subscriptions/{sub_id}")
     assert r.status_code == 200
+
+
+def test_email_match_is_only_for_anonymous_subscriptions(client_with_db):
+    """Regression for BUG_pr-review-job-2c2ebe1fc6814cffacdc1da6619c82de_0002.
+
+    User A subscribes (logged in). User B (with whatever email) must NOT
+    see / read User A's subscription detail just because some email field
+    coincidentally matches."""
+    from app.database.models import AutoTradeSubscription, User
+    from app.auth.security import hash_password
+
+    client, db = client_with_db
+    # Two separate users
+    a = User(email="alice@example.com", password_hash=hash_password("p"), role="client", is_active=True)
+    b = User(email="bob@example.com", password_hash=hash_password("p"), role="client", is_active=True)
+    db.add_all([a, b])
+    db.commit()
+    db.refresh(a)
+    db.refresh(b)
+
+    # Alice subscribes (her email gets stored, user_id set to a.id)
+    sub = AutoTradeSubscription(
+        email="alice@example.com",
+        user_id=a.id,
+        tier="auto_lite",
+        exchange_id="bybit",
+        api_key_encrypted="x" * 16,
+        api_secret_encrypted="x" * 16,
+        status="paper",
+        live_trading_enabled=False,
+    )
+    db.add(sub)
+    db.commit()
+    db.refresh(sub)
+
+    # Now Bob logs in
+    r = client.post("/auth/login", json={"email": "bob@example.com", "password": "p"})
+    assert r.status_code == 200
+
+    # Bob attempts to read Alice's subscription detail → 403
+    r = client.get(f"/client/me/subscriptions/{sub.id}")
+    assert r.status_code == 403
+
+    # Bob's listing must NOT include Alice's subscription
+    r = client.get("/client/me/subscriptions")
+    assert r.status_code == 200
+    assert sub.id not in [s["id"] for s in r.json()]
