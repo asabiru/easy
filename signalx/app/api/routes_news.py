@@ -311,20 +311,29 @@ def ingest_news_x(
     payload: XIngest,
     db: Session = Depends(get_db),
     x_signature: str | None = Header(default=None, alias="X-Signature"),
+    x_webhook_token: str | None = Header(default=None, alias="X-Webhook-Token"),
 ) -> dict[str, Any]:
-    """X (Twitter) webhook. Protected by `X-Signature` against
-    `NEWS_INGEST_SECRET` (shared with all other ingest endpoints) and
-    optionally also `X_WEBHOOK_SECRET` for legacy webhook senders.
+    """X (Twitter) webhook. Two independent header-based shared-secret
+    checks, both enforced when their secret is configured:
 
-    Both checks must pass when both secrets are set — the X handler
-    fires the same autotrade dispatcher as every other ingest path,
-    so it MUST honor NEWS_INGEST_SECRET. (BUG_0002 in
-    pr-review-job-5f8d54f0bce5493e86a1b963275ea000.)
+    - `X-Signature`     ↔ `NEWS_INGEST_SECRET` (shared across all ingest
+      paths, including this one — every webhook fires the same autotrade
+      dispatcher).
+    - `X-Webhook-Token` ↔ `X_WEBHOOK_SECRET` (legacy X-only sender
+      authentication, kept for back-compat with existing webhook
+      relays).
+
+    Using separate headers means each secret can be set to a different
+    value without locking the endpoint out — the previous single-header
+    AND check was unsatisfiable when the two secrets differed
+    (BUG_0001 in pr-review-job-18f5b3c56eb1471986398db1336459e1).
     """
     _verify_news_ingest_secret(x_signature)
     s = get_settings()
-    if s.x_webhook_secret and not hmac.compare_digest(x_signature or "", s.x_webhook_secret):
-        raise HTTPException(status_code=401, detail="invalid X-Signature")
+    if s.x_webhook_secret and not hmac.compare_digest(
+        x_webhook_token or "", s.x_webhook_secret
+    ):
+        raise HTTPException(status_code=401, detail="invalid X-Webhook-Token")
 
     handle = payload.handle.lstrip("@")
     meta = x_handle_meta(handle) or {}

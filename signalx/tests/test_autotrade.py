@@ -369,14 +369,14 @@ def test_x_webhook_signature_constant_time(client, monkeypatch):
         "raw_text": "Apple beat Q4 earnings expectations.",
         "verified": True,
     }
-    # Wrong signature → 401 (and no timing leak)
-    r = client.post("/news/ingest/x", json=payload, headers={"X-Signature": "wrong"})
+    # Wrong token → 401 (and no timing leak)
+    r = client.post("/news/ingest/x", json=payload, headers={"X-Webhook-Token": "wrong"})
     assert r.status_code == 401
     # No header at all → 401
     r = client.post("/news/ingest/x", json=payload)
     assert r.status_code == 401
     # Right secret → 200
-    r = client.post("/news/ingest/x", json=payload, headers={"X-Signature": "real-secret-abc"})
+    r = client.post("/news/ingest/x", json=payload, headers={"X-Webhook-Token": "real-secret-abc"})
     assert r.status_code == 200, r.text
 
     get_settings.cache_clear()  # type: ignore[attr-defined]

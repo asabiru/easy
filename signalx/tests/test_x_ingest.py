@@ -53,7 +53,7 @@ def test_x_webhook_signature_mismatch_rejected(client, monkeypatch):
             "handle": "DeItaone",
             "raw_text": "ConocoPhillips beats earnings per share estimates.",
         },
-        headers={"X-Signature": "wrong"},
+        headers={"X-Webhook-Token": "wrong"},
     )
     assert r.status_code == 401
 
@@ -122,3 +122,46 @@ def test_news_ingest_x_requires_news_ingest_secret(monkeypatch, client):
     # Correct → not 401 (may 200 / may downstream error, just not auth)
     r = client.post("/news/ingest/x", json=payload, headers={"X-Signature": "shared-key"})
     assert r.status_code != 401
+
+
+def test_news_ingest_x_with_both_secrets_set_to_different_values(monkeypatch, client):
+    """Regression for BUG_pr-review-job-18f5b3c56eb1471986398db1336459e1_0001.
+
+    When both NEWS_INGEST_SECRET and X_WEBHOOK_SECRET are configured to
+    DIFFERENT values, the endpoint must still be reachable — the caller
+    sends each secret in its own header (X-Signature for ingest,
+    X-Webhook-Token for the X-only legacy secret)."""
+    monkeypatch.setenv("NEWS_INGEST_SECRET", "alpha-secret")
+    monkeypatch.setenv("X_WEBHOOK_SECRET", "beta-secret")
+    from app.config.settings import get_settings
+    get_settings.cache_clear()
+
+    payload = {
+        "handle": "@DeItaone",
+        "raw_text": "Apple beat Q4 earnings expectations.",
+        "verified": True,
+    }
+    # Both correct → 200
+    r = client.post(
+        "/news/ingest/x", json=payload,
+        headers={"X-Signature": "alpha-secret", "X-Webhook-Token": "beta-secret"},
+    )
+    assert r.status_code == 200, r.text
+    # Only X-Signature → 401 (X-Webhook-Token missing)
+    r = client.post(
+        "/news/ingest/x", json=payload, headers={"X-Signature": "alpha-secret"},
+    )
+    assert r.status_code == 401
+    # Only X-Webhook-Token → 401 (X-Signature missing for ingest secret)
+    r = client.post(
+        "/news/ingest/x", json=payload, headers={"X-Webhook-Token": "beta-secret"},
+    )
+    assert r.status_code == 401
+    # Swapped values in headers → 401
+    r = client.post(
+        "/news/ingest/x", json=payload,
+        headers={"X-Signature": "beta-secret", "X-Webhook-Token": "alpha-secret"},
+    )
+    assert r.status_code == 401
+
+    get_settings.cache_clear()
