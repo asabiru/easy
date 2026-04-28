@@ -93,6 +93,28 @@ class Settings(BaseSettings):
     ton_treasury_address: str = ""  # Mainnet UQ... address that receives subscription/vault deposits
     ton_network: Literal["mainnet", "testnet"] = "testnet"
 
+    # ────────────────────────── Custody / managed pool ────────────────────── #
+    # When True, /wallet/deposit-address surfaces a real address and
+    # accepts production-mode webhooks. Default OFF so a misconfigured
+    # deploy can't accidentally take real client money.
+    custody_live_deposits_enabled: bool = False
+    # Free-text licence attestation surfaced in /legal/disclosures and
+    # checked at every deposit. Empty = MVP / pre-licence; the deposit
+    # endpoint then refuses with 503 unless the operator-override flag
+    # is set.
+    custody_license_jurisdiction: str = ""
+    custody_license_number: str = ""
+    custody_self_attest_override: bool = False  # operator opt-in to accept liability without licence
+    # Performance / management fee tunables — match the spec in
+    # `docs/vault-spec.md`.
+    custody_perf_fee_pct: float = 0.20
+    custody_mgmt_fee_pct_annual: float = 0.02
+    # Withdrawals are queued for manual operator approval before send.
+    # Cooldown prevents flush-attacks (deposit → instantly withdraw to
+    # round-trip USDT through us). 24h matches what major CEXes do.
+    custody_withdraw_cooldown_hours: int = 24
+    custody_min_withdraw_usdt: float = 10.0
+
     # Data files
     data_dir: Path = Field(default_factory=lambda: DATA_DIR)
 

@@ -27,6 +27,8 @@ from app.api import (
     routes_news,
     routes_signals,
     routes_support,
+    routes_treasury,
+    routes_wallet,
 )
 from app.config.settings import get_settings
 from app.database.session import init_db
@@ -73,6 +75,8 @@ def create_app() -> FastAPI:
     app.include_router(routes_2fa.router, tags=["auth"])
     app.include_router(routes_compliance.router, tags=["compliance"])
     app.include_router(routes_leads.router, tags=["leads"])
+    app.include_router(routes_wallet.router, tags=["wallet"])
+    app.include_router(routes_treasury.router, tags=["treasury"])
 
     # CORS — accept configured origins or default to permissive for MVP
     origins_csv = os.environ.get("CORS_ORIGINS", "*")

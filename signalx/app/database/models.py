@@ -400,3 +400,163 @@ class LeadCapture(Base):
     # Was this email confirmed via double-opt-in? Default False until the
     # user clicks the confirmation link sent by the broadcast worker.
     confirmed = Column(Boolean, nullable=False, default=False)
+
+
+# ─────────────────────── Custody / managed-pool models ─────────────────────── #
+#
+# These power the Phase-2 pivot: SignalX accepts USDT from clients, holds it
+# in a single treasury, and trades the aggregated pool. Each client owns
+# `shares` of the pool whose USDT-denominated price (`share_price`) is
+# recomputed at every NavSnapshot. Profits and losses propagate
+# proportionally across all share-holders. Performance fees are accrued at
+# HWM on each NavSnapshot.
+#
+# IMPORTANT — regulatory posture: Until SignalX holds an investment-management
+# / VASP / collective-investment-scheme licence in the operating jurisdiction,
+# the public deposit endpoint MUST be gated behind
+# `CUSTODY_LIVE_DEPOSITS_ENABLED=true`. The code-level gate lives in
+# `routes_wallet.py`. See `docs/legal/disclosures.md` and the discussion in
+# PR #15 for the explicit risk-acknowledgement text every client must accept
+# at the moment of first deposit.
+
+
+class ClientWallet(Base):
+    """Per-client position in the managed pool.
+
+    `balance_usdt` mirrors the most-recent USDT-equivalent of `shares` at
+    the latest NAV (denormalized for fast reads on /wallet/me); the
+    authoritative ownership unit is `shares`. `hwm_share_price` is the
+    high-water mark used to gate performance-fee accrual."""
+
+    __tablename__ = "client_wallets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    shares = Column(Float, default=0.0, nullable=False)
+    balance_usdt = Column(Float, default=0.0, nullable=False)
+    # HWM is share-price at last fee accrual. New fees only accrue on the
+    # delta above HWM, never twice for the same gain.
+    hwm_share_price = Column(Float, default=1.0, nullable=False)
+    last_fee_at = Column(DateTime, nullable=True)
+    # Total deposits / withdrawals for the lifetime of this wallet — used
+    # by the /wallet/me equity → P&L breakdown on the client UI.
+    lifetime_deposit_usdt = Column(Float, default=0.0, nullable=False)
+    lifetime_withdraw_usdt = Column(Float, default=0.0, nullable=False)
+
+
+class DepositAddress(Base):
+    """Chain-specific deposit address allocated to a single client.
+
+    For MVP we use one shared treasury address per chain with the user's
+    wallet id as the on-chain memo / tag (Tron, TON, Solana support memos;
+    EVM uses a per-user counterfactual address derived from a master
+    HD-key). The `external_address` field is what we present to the
+    client; `derivation_path` documents how it's derived for ops.
+
+    `expires_at` lets us rotate addresses if the chain integration
+    changes. `used` flips True after first observed inbound TX."""
+
+    __tablename__ = "deposit_addresses"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    chain = Column(String(16), nullable=False, index=True)  # trc20 / erc20 / ton / sol / bsc
+    external_address = Column(String(128), nullable=False)
+    memo = Column(String(64), nullable=True)  # for chains that need user-routing memo
+    derivation_path = Column(String(64), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=True)
+    used = Column(Boolean, default=False, nullable=False)
+
+
+class Deposit(Base):
+    """Inbound USDT deposit observed on-chain and credited to a wallet.
+
+    Idempotent on `(chain, tx_hash)`. `credited` flips True only after
+    the wallet's `shares` is updated and the audit log entry is written
+    in the same transaction; the credited path is the single source of
+    truth for share-issuance accounting."""
+
+    __tablename__ = "custody_deposits"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    chain = Column(String(16), nullable=False, index=True)
+    tx_hash = Column(String(128), nullable=False, index=True)
+    amount_usdt = Column(Float, nullable=False)
+    confirmed_at = Column(DateTime, nullable=True)
+    credited = Column(Boolean, default=False, nullable=False, index=True)
+    credited_at = Column(DateTime, nullable=True)
+    share_price_at_credit = Column(Float, nullable=True)
+    shares_credited = Column(Float, nullable=True)
+
+
+class Withdrawal(Base):
+    """Outbound USDT withdrawal request from a client.
+
+    Lifecycle: queued → approved → sent (or → cancelled). Manual two-step
+    operator approval in MVP — automation comes once we have multi-sig
+    treasury + automated NAV reconciliation."""
+
+    __tablename__ = "custody_withdrawals"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    chain = Column(String(16), nullable=False, index=True)
+    destination_address = Column(String(128), nullable=False)
+    amount_usdt = Column(Float, nullable=False)
+    shares_burned = Column(Float, nullable=False)
+    share_price_at_request = Column(Float, nullable=False)
+    status = Column(String(16), default="queued", nullable=False, index=True)
+    approved_at = Column(DateTime, nullable=True)
+    approved_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    sent_at = Column(DateTime, nullable=True)
+    tx_hash = Column(String(128), nullable=True)
+    cancelled_reason = Column(Text, nullable=True)
+
+
+class NavSnapshot(Base):
+    """Periodic snapshot of the pool's NAV.
+
+    `share_price = total_aum_usdt / total_shares` (capped at minimum 1e-6
+    to avoid div-by-zero). Snapshots are append-only — never mutated.
+    Used for: (a) deposit share-issuance pricing, (b) withdrawal pricing,
+    (c) performance-fee HWM reference, (d) UI charts."""
+
+    __tablename__ = "custody_nav_snapshots"
+
+    id = Column(Integer, primary_key=True, index=True)
+    at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    total_aum_usdt = Column(Float, nullable=False)
+    total_shares = Column(Float, nullable=False)
+    share_price = Column(Float, nullable=False)
+    # Free-form note set by ops at manual snapshot time, e.g.
+    # "after-fee accrual" / "BTC dump -8% reconciliation".
+    note = Column(String(256), nullable=True)
+
+
+class PerformanceFee(Base):
+    """Accrued performance / management fee event.
+
+    `kind="performance"`: 20% of share-price gain above HWM × user shares.
+    `kind="management"`: 2%/year (daily-pro-rata) of user_balance.
+
+    Both are accrued by minting `fee_shares` to the treasury wallet and
+    burning the same number of shares from the client. This way pool TVL
+    stays constant; only the share-of-pool reallocates."""
+
+    __tablename__ = "custody_performance_fees"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    kind = Column(String(16), nullable=False)  # "performance" | "management"
+    hwm_before = Column(Float, nullable=True)
+    hwm_after = Column(Float, nullable=True)
+    share_price = Column(Float, nullable=False)
+    fee_shares = Column(Float, nullable=False)
+    fee_usdt_equiv = Column(Float, nullable=False)

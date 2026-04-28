@@ -35,7 +35,11 @@ def _set_cookie(response: Response, token: str, ttl: int) -> None:
         max_age=ttl,
         httponly=True,
         samesite="lax",
-        secure=False,  # dev. In prod terminate TLS at edge and flip to True.
+        # HTTPS-only in staging/prod. We terminate TLS at the Fly.io
+        # edge and the upstream is plain HTTP, so the cookie must
+        # still be `secure=True` — the browser only sees the HTTPS
+        # connection. `dev` is the only non-HTTPS environment we run.
+        secure=get_settings().app_env != "dev",
     )
 
 
