@@ -512,9 +512,11 @@
         const r = await fetch(api + '/signals/filter-stats');
         if (!r.ok) return;
         const s = await r.json();
+        // Field names match /signals/filter-stats response — see
+        // routes_signals.py:filter_stats() for the canonical schema.
         document.getElementById('kpi-fil-pct').textContent =
-          (s.filter_rate_pct != null ? s.filter_rate_pct + '%' : '—');
-        document.getElementById('kpi-fil-visible').textContent = s.visible_count ?? '—';
+          (s.filtered_pct != null ? s.filtered_pct + '%' : '—');
+        document.getElementById('kpi-fil-visible').textContent = s.signals_visible ?? '—';
         document.getElementById('kpi-fil-score').textContent =
           (s.avg_visible_score != null ? s.avg_visible_score : '—');
         document.getElementById('kpi-fil-risk').textContent =

@@ -134,7 +134,16 @@ def filter_stats(
         .filter(Signal.created_at >= since)
     )
     total = base.count()
-    visible = base.filter(NewsEvent.fake_risk <= cap).count()
+    visible_rows = base.filter(NewsEvent.fake_risk <= cap).all()
+    visible = len(visible_rows)
+    if visible:
+        avg_score = sum(float(s.signal_score or 0) for s in visible_rows) / visible
+        # Fake risk lives on the event — pull it via the relationship; the
+        # join above guarantees the event is loaded (no extra round-trip).
+        avg_risk = sum(float(s.event.fake_risk or 0) for s in visible_rows) / visible
+    else:
+        avg_score = 0.0
+        avg_risk = 0.0
     return {
         "window_hours": window_hours,
         "tier": tier,
@@ -143,6 +152,8 @@ def filter_stats(
         "signals_visible": visible,
         "signals_filtered": max(0, total - visible),
         "filtered_pct": round(100.0 * (total - visible) / max(total, 1), 1),
+        "avg_visible_score": round(avg_score, 1),
+        "avg_visible_fake_risk": round(avg_risk, 1),
     }
 
 
