@@ -503,3 +503,207 @@ def credit_deposit(
         "share_price_at_credit": float(dep.share_price_at_credit or 0.0),
         "idempotent": False,
     }
+
+
+# ─────────────────── GET /admin/treasury/deposits/pending ────────────── #
+
+
+@router.get("/admin/treasury/deposits/pending")
+def deposits_pending(
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_role("admin", "manager")),
+    limit: int = 200,
+) -> dict[str, Any]:
+    """All uncredited deposits — operator review queue.
+
+    Includes:
+      * Deposits routed to the `unassigned@signalx.internal` sentinel
+        because the inbound webhook couldn't match a memo or address.
+      * Deposits below the chain-specific minimum (gas-floor protection).
+
+    Operator clears the queue via `POST /admin/treasury/credit-deposit`
+    (for orphans matched manually via TX inspection) or
+    `POST /admin/treasury/deposits/{id}/reattribute` (for sentinel-
+    routed orphans where the operator has confirmed the real user)."""
+    sentinel = (
+        db.query(User)
+        .filter(User.email == "unassigned@signalx.internal")
+        .first()
+    )
+    sentinel_id = sentinel.id if sentinel else None
+    rows = (
+        db.query(Deposit)
+        .filter(Deposit.credited == False)  # noqa: E712
+        .order_by(Deposit.id.desc())
+        .limit(max(1, min(limit, 1000)))
+        .all()
+    )
+    return {
+        "items": [
+            {
+                "id": r.id,
+                "user_id": r.user_id,
+                "is_unattributed": r.user_id == sentinel_id if sentinel_id else False,
+                "chain": r.chain,
+                "tx_hash": r.tx_hash,
+                "amount_usdt": float(r.amount_usdt),
+                "confirmed_at": r.confirmed_at.isoformat() if r.confirmed_at else None,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ],
+        "sentinel_user_id": sentinel_id,
+    }
+
+
+# ──────── POST /admin/treasury/deposits/{id}/reattribute ──────────── #
+
+
+class ReattributeIn(BaseModel):
+    """Move an uncredited deposit (typically routed to the unassigned
+    sentinel by the webhook) onto a real user and credit shares.
+
+    `note` is mandatory — operator MUST justify the reattribution in
+    one or two sentences for the audit trail. We pin AML-grade
+    accountability on every share-issuance event."""
+
+    user_id: int
+    note: str = Field(..., min_length=4, max_length=512)
+
+
+@router.post("/admin/treasury/deposits/{deposit_id}/reattribute")
+def deposit_reattribute(
+    deposit_id: int,
+    payload: ReattributeIn,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_role("admin")),
+) -> dict[str, Any]:
+    """Reattribute an uncredited deposit to a real user, credit shares.
+
+    Refuses if:
+      * Deposit is already credited (409).
+      * Target user does not exist or is the sentinel/treasury internal
+        account (404 / 400 — never credit shares to internal users via
+        this path; operator should use `/credit-deposit` for one-offs).
+      * Amount is below chain minimum (409 — operator should bundle
+        with a complementary deposit, not silently issue under-min
+        shares)."""
+    from app.custody.addresses import MIN_DEPOSIT_USDT
+    from app.custody.webhooks import UNATTRIBUTED_INTERNAL_EMAIL
+
+    dep = db.query(Deposit).filter(Deposit.id == deposit_id).first()
+    if dep is None:
+        raise HTTPException(status_code=404, detail="deposit not found")
+    if dep.credited:
+        raise HTTPException(
+            status_code=409, detail="deposit already credited; nothing to reattribute",
+        )
+    target = db.query(User).filter(User.id == payload.user_id).first()
+    if target is None:
+        raise HTTPException(status_code=404, detail="target user not found")
+    if target.email in (UNATTRIBUTED_INTERNAL_EMAIL, TREASURY_INTERNAL_EMAIL):
+        raise HTTPException(
+            status_code=400,
+            detail="cannot reattribute to an internal sentinel user",
+        )
+    min_amt = MIN_DEPOSIT_USDT.get(dep.chain, 1.0)
+    if float(dep.amount_usdt) < min_amt:
+        raise HTTPException(
+            status_code=409,
+            detail=f"deposit below chain minimum ({min_amt} USDT for {dep.chain})",
+        )
+
+    share_price = _latest_share_price(db)
+    shares = shares_math.issue_shares(float(dep.amount_usdt), share_price)
+
+    # Re-anchor the deposit row.
+    previous_user_id = dep.user_id
+    dep.user_id = target.id
+    dep.credited = True
+    dep.credited_at = datetime.utcnow()
+    dep.share_price_at_credit = share_price
+    dep.shares_credited = shares
+    db.add(dep)
+
+    # Credit the wallet — same logic as `credit_deposit` happy path.
+    wallet = (
+        db.query(ClientWallet).filter(ClientWallet.user_id == target.id).first()
+    )
+    if wallet is None:
+        wallet = ClientWallet(
+            user_id=target.id,
+            shares=0.0,
+            balance_usdt=0.0,
+            hwm_share_price=share_price,
+        )
+        db.add(wallet)
+        db.flush()
+    wallet.shares = float(wallet.shares) + shares
+    if wallet.hwm_share_price is None or float(wallet.hwm_share_price) <= 0:
+        wallet.hwm_share_price = share_price
+    wallet.lifetime_deposit_usdt = (
+        float(wallet.lifetime_deposit_usdt) + float(dep.amount_usdt)
+    )
+    wallet.balance_usdt = float(wallet.shares) * share_price
+    db.add(wallet)
+
+    _audit(db, target.id, actor.id, "custody_deposit_reattributed", {
+        "deposit_id": dep.id,
+        "from_user_id": previous_user_id,
+        "to_user_id": target.id,
+        "chain": dep.chain,
+        "tx_hash": dep.tx_hash,
+        "amount_usdt": float(dep.amount_usdt),
+        "shares_credited": shares,
+        "share_price": share_price,
+        "operator_note": payload.note,
+    })
+    db.commit()
+    db.refresh(dep)
+    return {
+        "id": dep.id,
+        "user_id": dep.user_id,
+        "credited": True,
+        "shares_credited": shares,
+        "share_price_at_credit": share_price,
+    }
+
+
+# ───────────────── GET /admin/treasury/audit-log ────────────────── #
+
+
+@router.get("/admin/treasury/audit-log")
+def audit_log(
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_role("admin", "manager")),
+    limit: int = 200,
+    kind: str | None = None,
+) -> dict[str, Any]:
+    """Append-only custody audit trail.
+
+    Filter by `kind` to narrow to a specific event class —
+    `custody_deposit_credited`, `custody_deposit_webhook_credited`,
+    `custody_deposit_webhook_pending_review`,
+    `custody_deposit_reattributed`, `custody_withdraw_*`,
+    `custody_nav_snapshot`, etc.
+
+    `limit` is hard-clamped to 1000 to keep response sizes sane —
+    paging via `before_id` is on the roadmap when an operator hits this
+    in anger."""
+    q = db.query(AmlEvent).filter(AmlEvent.kind.like("custody_%"))
+    if kind:
+        q = q.filter(AmlEvent.kind == kind)
+    rows = q.order_by(AmlEvent.id.desc()).limit(max(1, min(limit, 1000))).all()
+    return {
+        "items": [
+            {
+                "id": r.id,
+                "kind": r.kind,
+                "user_id": r.user_id,
+                "actor_id": r.actor_id,
+                "detail": r.detail,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ],
+    }

@@ -487,3 +487,173 @@ def test_withdraw_cancel_re_credits_shares(client_with_db):
     cl.post("/auth/login", json={"email": "client@example.com", "password": "pw1234567"})
     me_post = cl.get("/wallet/me").json()
     assert abs(me_post["shares"] - 1000.0) < 1e-6
+
+
+# ─────────────── pending-deposits / reattribute / audit-log ────────── #
+
+
+def _admin_login(cl, db, email: str = "admin@example.com"):
+    """Register + promote + login as admin. Returns admin user id."""
+    cl.headers.pop("Authorization", None); cl.cookies.clear()
+    _register(cl, email)
+    _promote_admin(db, email)
+    cl.headers.pop("Authorization", None); cl.cookies.clear()
+    cl.post("/auth/login", json={"email": email, "password": "pw1234567"})
+
+
+def test_deposits_pending_lists_uncredited_only(client_with_db):
+    cl, db = client_with_db
+    # Seed: one credited deposit, one uncredited.
+    _register(cl, "client@example.com")
+    cl.headers.pop("Authorization", None); cl.cookies.clear()
+    _admin_login(cl, db)
+    from app.database.models import Deposit, User
+    cu = db.query(User).filter(User.email == "client@example.com").first()
+    cl.post("/admin/treasury/credit-deposit", json={
+        "user_id": cu.id, "chain": "trc20", "tx_hash": "OK1", "amount_usdt": 100.0,
+    })
+    db.add(Deposit(
+        user_id=cu.id, chain="trc20", tx_hash="PEND1",
+        amount_usdt=2.0, credited=False,
+    ))
+    db.commit()
+
+    r = cl.get("/admin/treasury/deposits/pending")
+    assert r.status_code == 200
+    items = r.json()["items"]
+    assert len(items) == 1
+    assert items[0]["tx_hash"] == "PEND1"
+    assert items[0]["is_unattributed"] is False  # owned by real user, just below-min
+
+
+def test_deposit_reattribute_credits_shares_and_audits(client_with_db):
+    cl, db = client_with_db
+    _register(cl, "newowner@example.com")
+    cl.headers.pop("Authorization", None); cl.cookies.clear()
+    _admin_login(cl, db)
+    from app.database.models import (
+        AmlEvent, ClientWallet, Deposit, User,
+    )
+    target = db.query(User).filter(User.email == "newowner@example.com").first()
+
+    # Create an unattributed deposit on the sentinel user.
+    sentinel = User(
+        email="unassigned@signalx.internal",
+        password_hash="!disabled",
+        role="admin",
+        is_active=False,
+    )
+    db.add(sentinel); db.flush()
+    dep = Deposit(
+        user_id=sentinel.id, chain="trc20", tx_hash="ORPHAN1",
+        amount_usdt=300.0, credited=False,
+    )
+    db.add(dep); db.commit()
+
+    r = cl.post(
+        f"/admin/treasury/deposits/{dep.id}/reattribute",
+        json={"user_id": target.id, "note": "matched via Tron explorer"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["credited"] is True
+    assert body["user_id"] == target.id
+    assert abs(body["shares_credited"] - 300.0) < 1e-6  # bootstrap NAV
+
+    # Wallet now holds 300 shares.
+    db.expire_all()
+    w = db.query(ClientWallet).filter(ClientWallet.user_id == target.id).first()
+    assert abs(float(w.shares) - 300.0) < 1e-6
+
+    # Audit row written.
+    audit = (
+        db.query(AmlEvent)
+        .filter(AmlEvent.kind == "custody_deposit_reattributed")
+        .first()
+    )
+    assert audit is not None
+    assert audit.user_id == target.id
+    assert "matched via Tron explorer" in (audit.detail or "")
+
+
+def test_deposit_reattribute_refuses_already_credited(client_with_db):
+    cl, db = client_with_db
+    _register(cl, "client@example.com")
+    cl.headers.pop("Authorization", None); cl.cookies.clear()
+    _admin_login(cl, db)
+    from app.database.models import User
+    cu = db.query(User).filter(User.email == "client@example.com").first()
+    r = cl.post("/admin/treasury/credit-deposit", json={
+        "user_id": cu.id, "chain": "trc20",
+        "tx_hash": "ALREADY1", "amount_usdt": 100.0,
+    })
+    dep_id = r.json()["id"]
+    r = cl.post(
+        f"/admin/treasury/deposits/{dep_id}/reattribute",
+        json={"user_id": cu.id, "note": "no-op"},
+    )
+    assert r.status_code == 409
+
+
+def test_deposit_reattribute_refuses_internal_user(client_with_db):
+    cl, db = client_with_db
+    _register(cl, "client@example.com")
+    cl.headers.pop("Authorization", None); cl.cookies.clear()
+    _admin_login(cl, db)
+    from app.database.models import Deposit, User
+    cu = db.query(User).filter(User.email == "client@example.com").first()
+    treasury = User(
+        email="treasury@signalx.internal",
+        password_hash="!disabled",
+        role="admin",
+        is_active=False,
+    )
+    db.add(treasury); db.flush()
+    dep = Deposit(
+        user_id=cu.id, chain="trc20", tx_hash="REF1",
+        amount_usdt=100.0, credited=False,
+    )
+    db.add(dep); db.commit()
+    r = cl.post(
+        f"/admin/treasury/deposits/{dep.id}/reattribute",
+        json={"user_id": treasury.id, "note": "should be refused"},
+    )
+    assert r.status_code == 400
+
+
+def test_audit_log_returns_custody_events_only(client_with_db):
+    cl, db = client_with_db
+    _register(cl, "client@example.com")
+    cl.headers.pop("Authorization", None); cl.cookies.clear()
+    _admin_login(cl, db)
+    from app.database.models import AmlEvent, User
+    # Seed unrelated AML events that should NOT appear.
+    db.add(AmlEvent(user_id=None, actor_id=None, kind="kyc_status_change", detail="x"))
+    db.add(AmlEvent(user_id=None, actor_id=None, kind="custody_test_event", detail="y"))
+    db.commit()
+    r = cl.get("/admin/treasury/audit-log")
+    assert r.status_code == 200
+    kinds = {item["kind"] for item in r.json()["items"]}
+    assert all(k.startswith("custody_") for k in kinds)
+    assert "custody_test_event" in kinds
+    assert "kyc_status_change" not in kinds
+
+
+def test_audit_log_filters_by_kind(client_with_db):
+    cl, db = client_with_db
+    _register(cl, "client@example.com")
+    cl.headers.pop("Authorization", None); cl.cookies.clear()
+    _admin_login(cl, db)
+    from app.database.models import User
+    cu = db.query(User).filter(User.email == "client@example.com").first()
+    cl.post("/admin/treasury/credit-deposit", json={
+        "user_id": cu.id, "chain": "trc20", "tx_hash": "TX-FILTER",
+        "amount_usdt": 50.0,
+    })
+    r = cl.get(
+        "/admin/treasury/audit-log",
+        params={"kind": "custody_deposit_credited"},
+    )
+    assert r.status_code == 200
+    kinds = {item["kind"] for item in r.json()["items"]}
+    assert kinds == {"custody_deposit_credited"}
