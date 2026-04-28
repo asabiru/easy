@@ -160,6 +160,100 @@ For any caller hitting `/autotrade/subscribe` or `/autotrade/{id}/go-live`:
 6. Subscription state guards — 409 if killed/paused/in paper window.
 7. Per-symbol & risk caps — risk-engine gates inside the executor.
 
+## Custody / managed-pool flow (Mode B)
+
+Added in custody round 1–3 commits (`31fec1b`, `c727399`, `8160d32`).
+This is the optional fund-style mode where SignalX accepts USDT
+deposits, pools them under one treasury, and issues fractional shares
+priced at NAV. Mode B is **off by default** — see the gate stack
+below before deploying.
+
+### Module map
+
+| Module                                      | Responsibility                                                                |
+|--------------------------------------------|-------------------------------------------------------------------------------|
+| `app/custody/shares.py`                    | Pure share-math: `issue_shares`, `burn_shares`, `share_price_from_aum`, `performance_fee_shares` |
+| `app/custody/addresses.py`                 | Per-user / per-chain deposit address allocation (deterministic mock; wired for HD-wallet derivation later) |
+| `app/custody/webhooks.py`                  | Five chain-specific parsers (TronGrid / Alchemy / Helius / BSCscan / TON) + shared idempotent `record_inbound_deposit()` + sentinel-routing for unmatched deposits |
+| `app/api/routes_wallet.py`                 | `/wallet/me`, `/wallet/deposit-address`, `/wallet/deposits`, `/wallet/withdraw`, `/wallet/withdrawals` — client-facing |
+| `app/api/routes_treasury.py`               | `/admin/treasury/*` — pool overview, withdrawal queue (approve/send/cancel), NAV snapshot, manual credit, **pending deposits queue, deposit reattribute, custody audit log** |
+| `app/api/routes_payments_webhooks.py`      | `POST /payments/{trongrid,alchemy,helius,bsc,ton-pool}/webhook` — provider-facing |
+
+### Gate stack (custody endpoints, in order)
+
+For any caller hitting `/wallet/deposit-address` or `/wallet/withdraw`:
+
+1. **Master toggle** — `CUSTODY_LIVE_DEPOSITS_ENABLED=true`. Default
+   off; deposit endpoint returns 503 with explicit message until
+   operator opts in.
+2. **Licence attestation** — either both `CUSTODY_LICENSE_JURISDICTION`
+   and `CUSTODY_LICENSE_NUMBER` set, OR `CUSTODY_SELF_ATTEST_OVERRIDE=true`
+   (operator accepts unlicensed-operation risk). Otherwise 503.
+3. `Depends(get_current_user)` — write endpoints always authenticate.
+4. `require_risk_ack(user)` — `RISK_ACK_VERSION=2` (custody-aware
+   disclosures). Clients on v1 see 412 until they re-accept.
+5. KYC — fund-flow endpoints are KYC-gated regardless of the global
+   `KYC_REQUIRED` toggle. 403 until `KycProfile.status="approved"`
+   and no sanctions hit.
+6. **Per-chain webhook secret** (webhook routes only) — chain
+   returns 503 until its own `CUSTODY_*_WEBHOOK_SECRET` is set, even
+   if the master toggle is on. Forces an explicit per-chain go-live
+   decision.
+7. Withdrawal cooldown — 24h post-deposit window blocks deposit→
+   withdraw round-trips (anti-flush guard).
+
+### Inbound deposit lifecycle
+
+```
+chain provider POST /payments/<chain>/webhook
+   │
+   ▼
+verify HMAC / Bearer signature  ─── 401 on mismatch
+   │
+   ▼
+parse_<chain>(payload) → InboundDeposit
+   │
+   ▼
+record_inbound_deposit(db, dep)
+   │   ├── existing (chain, tx_hash) row? → return idempotently, no double-credit
+   │   ├── resolve user via memo or address match
+   │   ├── if matched + confirmed + ≥ chain min:
+   │   │       issue shares using current NAV, write audit row
+   │   ├── if matched but below-min: row stored, credited=False (operator review)
+   │   └── if unmatched: anchor to unassigned@signalx.internal sentinel
+   │                     (operator manually reattributes via
+   │                     POST /admin/treasury/deposits/{id}/reattribute)
+   ▼
+return 200 to provider with deposit_id + credited flag
+```
+
+All webhook handlers always return 200 once signature passes — provider
+retry logic is happy, and operators clear orphans / below-min through
+the audit-log + reattribute flow.
+
+### Performance + management fees
+
+NAV snapshot (`POST /admin/treasury/nav/snapshot`) recomputes
+`share_price = AUM / total_shares`. For each client wallet whose share
+price exceeds its high-water mark, `performance_fee_shares()` transfers
+20% of the gain (in shares) from the client to the
+`treasury@signalx.internal` internal user — never burned, so
+`sum(shares)` is invariant. `PerformanceFee` rows record `hwm_before`
+and `hwm_after` for audit. Management fee (2% of equity per year,
+daily-pro-rata) accrues on the same path.
+
+### Operator runbook
+
+| Scenario                                     | Action                                                                  |
+|---------------------------------------------|-------------------------------------------------------------------------|
+| Webhook stuck retrying (4xx in our logs)     | Check `CUSTODY_LIVE_DEPOSITS_ENABLED` + per-chain secret env vars       |
+| Client says "I deposited but no balance"     | `/admin/treasury/deposits/pending` → if listed, reattribute or wait for confirm |
+| Address mismatch on a real deposit           | `/admin/treasury/deposits/{id}/reattribute` with note ≥ 4 chars         |
+| Suspicious withdrawal in queue               | `/admin/treasury/withdrawals/{id}/cancel` with reason; shares re-credit |
+| Daily AUM update                             | `/admin/treasury/nav/snapshot` with `aum_usdt` after exchange + on-chain reconcile |
+| Audit query on a specific user               | `/admin/treasury/audit-log?kind=custody_deposit_credited&limit=100`     |
+| Suspected secret leak                        | Rotate `CUSTODY_<chain>_WEBHOOK_SECRET`; no client impact (we never expose it client-side) |
+
 ## Roadmap (post-MVP)
 
 1. Real-time collectors (RSS scheduler, Telegram channel reader).

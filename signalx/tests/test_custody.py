@@ -657,3 +657,66 @@ def test_audit_log_filters_by_kind(client_with_db):
     assert r.status_code == 200
     kinds = {item["kind"] for item in r.json()["items"]}
     assert kinds == {"custody_deposit_credited"}
+
+
+# ───────────────────────── treasury health ────────────────────────── #
+
+
+def test_treasury_health_ok_on_empty_state(client_with_db):
+    cl, db = client_with_db
+    _register(cl, "client@example.com")
+    cl.headers.pop("Authorization", None); cl.cookies.clear()
+    _admin_login(cl, db)
+    r = cl.get("/admin/treasury/health")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["overall_status"] == "ok"
+    assert body["shares_invariant_ok"] is True
+    assert body["negative_balances"] == 0
+    assert body["pending_deposit_count"] == 0
+    assert body["unattributed_count"] == 0
+    assert body["pending_withdrawal_count"] == 0
+
+
+def test_treasury_health_warn_on_unattributed_deposit(client_with_db):
+    cl, db = client_with_db
+    _register(cl, "client@example.com")
+    cl.headers.pop("Authorization", None); cl.cookies.clear()
+    _admin_login(cl, db)
+    from app.database.models import Deposit, User
+    sentinel = User(
+        email="unassigned@signalx.internal",
+        password_hash="!disabled",
+        role="admin",
+        is_active=False,
+    )
+    db.add(sentinel); db.flush()
+    db.add(Deposit(
+        user_id=sentinel.id, chain="trc20", tx_hash="ORPHAN-HEALTH",
+        amount_usdt=100.0, credited=False,
+    ))
+    db.commit()
+    r = cl.get("/admin/treasury/health")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["unattributed_count"] == 1
+    assert body["pending_deposit_count"] == 1
+    assert body["overall_status"] == "warn"
+
+
+def test_treasury_health_critical_on_negative_balance(client_with_db):
+    cl, db = client_with_db
+    _register(cl, "client@example.com")
+    cl.headers.pop("Authorization", None); cl.cookies.clear()
+    _admin_login(cl, db)
+    from app.database.models import ClientWallet, User
+    cu = db.query(User).filter(User.email == "client@example.com").first()
+    db.add(ClientWallet(
+        user_id=cu.id, shares=-1.0, balance_usdt=-1.0, hwm_share_price=1.0,
+    ))
+    db.commit()
+    r = cl.get("/admin/treasury/health")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["negative_balances"] == 1
+    assert body["overall_status"] == "critical"

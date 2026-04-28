@@ -154,6 +154,7 @@
           <div class="kpi"><div class="label">Total shares</div><div class="value" id="treas-shares" style="font-size:18px">—</div></div>
           <div class="kpi"><div class="label">Share price</div><div class="value" id="treas-price" style="font-size:18px">—</div></div>
           <div class="kpi"><div class="label">Active clients</div><div class="value" id="treas-clients" style="font-size:18px">—</div></div>
+          <div class="kpi"><div class="label">Health</div><div class="value" id="treas-health" style="font-size:18px">—</div><div class="muted" id="treas-health-detail" style="font-size:11px">—</div></div>
         </div>
         <div class="panel">
           <h3 style="display:flex;justify-content:space-between;align-items:center">
@@ -480,12 +481,31 @@
       return Number(n).toLocaleString('en-US', {minimumFractionDigits: d, maximumFractionDigits: d});
     }
 
+    async function loadTreasuryHealth() {
+      try {
+        const h = await SX.api('/admin/treasury/health');
+        const colors = {ok: 'var(--accent)', warn: '#facc15', critical: 'var(--danger)'};
+        const el = document.getElementById('treas-health');
+        el.textContent = h.overall_status.toUpperCase();
+        el.style.color = colors[h.overall_status] || 'var(--text)';
+        const bits = [];
+        if (h.unattributed_count) bits.push(`${h.unattributed_count} unattributed`);
+        if (h.pending_withdrawal_count) bits.push(`${h.pending_withdrawal_count} pending wd`);
+        if (h.latest_nav_age_hours !== null && h.latest_nav_age_hours !== undefined) bits.push(`NAV ${h.latest_nav_age_hours.toFixed(1)}h old`);
+        if (h.negative_balances) bits.push(`${h.negative_balances} NEGATIVE`);
+        document.getElementById('treas-health-detail').textContent = bits.join(' · ') || 'all clean';
+      } catch (e) {
+        document.getElementById('treas-health').textContent = 'ERR';
+      }
+    }
+
     async function loadTreasury() {
       const [pool, queue] = await Promise.all([
         SX.api('/admin/treasury/pool'),
         SX.api('/admin/treasury/withdrawals/queue'),
         loadTreasuryPending(),
         loadTreasuryAudit(),
+        loadTreasuryHealth(),
       ]);
       document.getElementById('treas-aum').textContent = '$' + fmtN(pool.total_aum_usdt);
       document.getElementById('treas-shares').textContent = fmtN(pool.total_shares, 4);

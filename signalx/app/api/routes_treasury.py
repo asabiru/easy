@@ -669,6 +669,103 @@ def deposit_reattribute(
     }
 
 
+# ────────────────── GET /admin/treasury/health ─────────────────── #
+
+
+@router.get("/admin/treasury/health")
+def treasury_health(
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_role("admin", "manager")),
+) -> dict[str, Any]:
+    """Read-only invariant check.
+
+    Surfaces issues an operator should triage before processing any
+    new deposit/withdrawal:
+
+      * `shares_invariant_ok` — sum(wallets.shares) ≈ latest NAV
+        snapshot's total_shares within 1e-4 tolerance. False = NAV
+        out-of-date or accounting bug.
+      * `negative_balances` — count of wallets with balance_usdt < 0
+        or shares < 0 (should always be 0).
+      * `pending_deposit_count` — uncredited deposits awaiting
+        operator action.
+      * `unattributed_count` — subset of pending routed to sentinel.
+      * `pending_withdrawal_count` — `queued`/`approved` withdrawals.
+      * `latest_nav_age_hours` — hours since last NAV snapshot. Stale
+        NAV (>24h) means new deposits issue shares at a stale price
+        — operator should re-snapshot before crediting big deposits.
+
+    Returns an `overall_status` of `ok` / `warn` / `critical` so a
+    monitoring system can page on `critical` without parsing fields."""
+    from datetime import datetime, timedelta
+
+    wallets = db.query(ClientWallet).all()
+    sum_shares = sum(float(w.shares or 0.0) for w in wallets)
+    negatives = sum(
+        1 for w in wallets
+        if float(w.shares or 0.0) < 0 or float(w.balance_usdt or 0.0) < 0
+    )
+
+    latest_nav = (
+        db.query(NavSnapshot).order_by(NavSnapshot.id.desc()).first()
+    )
+    invariant_ok = True
+    invariant_drift = 0.0
+    nav_age_hours: float | None = None
+    if latest_nav is not None:
+        invariant_drift = abs(sum_shares - float(latest_nav.total_shares or 0.0))
+        invariant_ok = invariant_drift < 1e-4
+        if latest_nav.at:
+            nav_age_hours = (datetime.utcnow() - latest_nav.at).total_seconds() / 3600.0
+
+    sentinel = (
+        db.query(User)
+        .filter(User.email == "unassigned@signalx.internal")
+        .first()
+    )
+    sentinel_id = sentinel.id if sentinel else None
+    pending_dep = (
+        db.query(Deposit).filter(Deposit.credited == False).count()  # noqa: E712
+    )
+    unattributed = (
+        db.query(Deposit)
+        .filter(Deposit.credited == False, Deposit.user_id == sentinel_id)  # noqa: E712
+        .count()
+        if sentinel_id is not None
+        else 0
+    )
+    pending_wd = (
+        db.query(Withdrawal)
+        .filter(Withdrawal.status.in_(("queued", "approved")))
+        .count()
+    )
+
+    # Aggregate status. `critical` triggers paging.
+    if negatives > 0 or not invariant_ok:
+        status = "critical"
+    elif (
+        (nav_age_hours is not None and nav_age_hours > 24)
+        or unattributed > 0
+        or pending_wd >= 5
+    ):
+        status = "warn"
+    else:
+        status = "ok"
+
+    return {
+        "overall_status": status,
+        "shares_invariant_ok": invariant_ok,
+        "shares_invariant_drift": invariant_drift,
+        "sum_client_shares": sum_shares,
+        "latest_nav_total_shares": float(latest_nav.total_shares) if latest_nav else None,
+        "negative_balances": negatives,
+        "pending_deposit_count": pending_dep,
+        "unattributed_count": unattributed,
+        "pending_withdrawal_count": pending_wd,
+        "latest_nav_age_hours": nav_age_hours,
+    }
+
+
 # ───────────────── GET /admin/treasury/audit-log ────────────────── #
 
 
