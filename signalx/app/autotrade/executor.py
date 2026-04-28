@@ -90,14 +90,22 @@ def _maybe_execute(
     )
     pnl_today = daily_pnl(recent)
     # Use the start-of-day balance so daily-loss-limit is computed against
-    # today's open, not the oldest balance in the recent-50 window.
+    # today's open, not the oldest balance in the recent-50 window. Use
+    # explicit None checks because 0.0 is a legitimate balance (drained
+    # account) — Python's `or` would silently coerce it to the 10K default
+    # and the risk-guard's `free_balance <= 0` check would never fire.
     today_open = starting_of_day_balance(recent)
-    starting_balance = (
-        today_open
-        or (recent[-1].balance_before if recent else None)
-        or DEFAULT_PAPER_BALANCE
-    )
-    free_balance = (recent[0].balance_after if recent else DEFAULT_PAPER_BALANCE) or DEFAULT_PAPER_BALANCE
+    if today_open is not None:
+        starting_balance = today_open
+    elif recent and recent[-1].balance_before is not None:
+        starting_balance = recent[-1].balance_before
+    else:
+        starting_balance = DEFAULT_PAPER_BALANCE
+
+    if recent and recent[0].balance_after is not None:
+        free_balance = recent[0].balance_after
+    else:
+        free_balance = DEFAULT_PAPER_BALANCE
 
     proposed_notional = free_balance * sub.max_position_pct
     side = "buy" if signal.action == "LONG" else "sell"

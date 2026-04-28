@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "SignalX — event-driven trading signals for tokenized stock perpetual futures"
 requires-python = ">=3.11"
 dependencies = [
-  "fastapi==0.115.0",
+  "fastapi[standard]==0.115.0",
   "uvicorn[standard]==0.30.6",
   "pydantic==2.9.2",
   "pydantic-settings==2.5.2",
@@ -22,6 +22,8 @@ dependencies = [
   "feedparser==6.0.11",
   "python-dotenv==1.0.1",
   "python-multipart==0.0.10",
+  "rapidfuzz==3.10.0",
+  "python-telegram-bot==21.6",
 ]
 
 [build-system]

@@ -261,3 +261,122 @@ def test_autotrade_endpoints_reject_other_user(client):
     assert rr.status_code == 403
     rr = client.get(f"/autotrade/{sub_id}/status")
     assert rr.status_code == 403
+
+
+def test_zero_balance_not_replaced_with_default(client, db_session):
+    """Regression for BUG_pr-review-job-a396d7d786094fc09ee63dcf33c7aa69_0001.
+
+    A subscription whose last order's balance_after is 0.0 must NOT have
+    free_balance silently replaced with DEFAULT_PAPER_BALANCE (10K). With
+    a real free_balance of 0.0 and max_position_pct=0.10, proposed_notional
+    is 0 and the risk-guard's free_balance<=0 rule must reject.
+    """
+    from datetime import datetime
+    from app.autotrade.executor import _maybe_execute
+    from app.database.models import (
+        AutoTradeOrder,
+        AutoTradeSubscription,
+        NewsEvent,
+        Signal,
+    )
+
+    sub = AutoTradeSubscription(
+        email="drained@example.com",
+        tier="auto_lite",
+        exchange_id="bybit",
+        api_key_encrypted="x",
+        api_secret_encrypted="y",
+        max_position_pct=0.10,
+        daily_loss_limit_pct=0.05,
+        min_signal_score=0,
+        status="paper",
+        live_trading_enabled=False,
+    )
+    db_session.add(sub)
+    db_session.commit()
+    db_session.refresh(sub)
+
+    # Insert a prior order whose balance_after is 0.0 — drained account.
+    drained = AutoTradeOrder(
+        subscription_id=sub.id,
+        signal_id=None,
+        mode="paper",
+        symbol="NVDAUSDT",
+        side="buy",
+        qty=1.0,
+        entry_price=100.0,
+        balance_before=100.0,
+        balance_after=0.0,
+        realized_pnl=-100.0,
+        status="filled",
+        created_at=datetime.utcnow(),
+    )
+    db_session.add(drained)
+    ev = NewsEvent(
+        source="reuters", source_url=None, raw_text="x", normalized_text="x",
+        text_hash="h0", company="NVIDIA", ticker="NVDA",
+    )
+    db_session.add(ev)
+    db_session.commit()
+    db_session.refresh(ev)
+    sig = Signal(
+        event_id=ev.id,
+        ticker="NVDA", symbol="NVDAUSDT", direction="bullish",
+        action="LONG", signal_score=80, entry_price=100.0, status="new",
+    )
+    db_session.add(sig)
+    db_session.commit()
+    db_session.refresh(sig)
+
+    order = _maybe_execute(db_session, sub, sig)
+    assert order is not None
+    # Either rejected because free_balance is 0, or filled at 0 notional —
+    # but NOT filled at the 10K default. The guard must see the real 0.
+    if order.status == "rejected":
+        assert "balance" in (order.rejected_reason or "").lower() or "exceeds" in (order.rejected_reason or "").lower()
+    else:
+        # If it filled in paper, the qty/notional must be 0, not 1000.
+        assert (order.qty or 0) == 0 or (order.entry_price or 0) * (order.qty or 0) <= 0.01
+
+
+def test_signal_result_update_requires_admin(client):
+    """Regression for BUG_pr-review-job-a396d7d786094fc09ee63dcf33c7aa69_0002.
+
+    Anonymous callers must NOT be able to mutate signal results — they
+    feed the public win_rate_pct shown on the landing page."""
+    # No session at all → 401
+    r = client.post("/signals/1/result/update", json={"result": "win"})
+    assert r.status_code == 401
+
+    # A regular client → 403 (role 'client' not in allowed=admin)
+    _register(client, "joe@example.com")
+    r = client.post("/signals/1/result/update", json={"result": "win"})
+    assert r.status_code == 403
+
+
+def test_x_webhook_signature_constant_time(client, monkeypatch):
+    """Regression for BUG_pr-review-job-a396d7d786094fc09ee63dcf33c7aa69_0003.
+
+    The X / Discord webhook signature check uses hmac.compare_digest, so
+    wrong values return 401 regardless of how close to the real secret
+    they are."""
+    monkeypatch.setenv("X_WEBHOOK_SECRET", "real-secret-abc")
+    from app.config.settings import get_settings
+    get_settings.cache_clear()  # type: ignore[attr-defined]
+
+    payload = {
+        "handle": "@DeItaone",
+        "raw_text": "Apple beat Q4 earnings expectations.",
+        "verified": True,
+    }
+    # Wrong signature → 401 (and no timing leak)
+    r = client.post("/news/ingest/x", json=payload, headers={"X-Signature": "wrong"})
+    assert r.status_code == 401
+    # No header at all → 401
+    r = client.post("/news/ingest/x", json=payload)
+    assert r.status_code == 401
+    # Right secret → 200
+    r = client.post("/news/ingest/x", json=payload, headers={"X-Signature": "real-secret-abc"})
+    assert r.status_code == 200, r.text
+
+    get_settings.cache_clear()  # type: ignore[attr-defined]

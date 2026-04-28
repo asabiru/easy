@@ -7,7 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.database.models import Signal, SignalResult
+from app.auth.deps import require_role
+from app.database.models import Signal, SignalResult, User
 from app.database.session import get_db
 from app.performance.metrics import summary
 
@@ -77,7 +78,15 @@ class ResultUpdate(BaseModel):
 
 
 @router.post("/signals/{signal_id}/result/update")
-def update_result(signal_id: int, payload: ResultUpdate, db: Session = Depends(get_db)) -> dict[str, Any]:
+def update_result(
+    signal_id: int,
+    payload: ResultUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("admin")),
+) -> dict[str, Any]:
+    """Admin-only. Signal results feed `win_rate_pct` on the public
+    `/performance/summary`, which is referenced by the landing page —
+    they cannot be writable by anonymous callers."""
     s = db.get(Signal, signal_id)
     if s is None:
         raise HTTPException(404, "signal not found")

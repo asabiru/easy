@@ -11,6 +11,7 @@ Endpoints:
 """
 from __future__ import annotations
 
+import hmac
 import logging
 from datetime import datetime, timezone
 from typing import Any
@@ -292,7 +293,7 @@ def ingest_news_x(
     """X (Twitter) webhook. Optionally protected by `X-Signature` shared
     secret if `X_WEBHOOK_SECRET` is configured."""
     s = get_settings()
-    if s.x_webhook_secret and x_signature != s.x_webhook_secret:
+    if s.x_webhook_secret and not hmac.compare_digest(x_signature or "", s.x_webhook_secret):
         raise HTTPException(status_code=401, detail="invalid X-Signature")
 
     handle = payload.handle.lstrip("@")
@@ -332,7 +333,7 @@ def ingest_news_discord(
     fake_risk falls back to the linguistic + cross-source layer."""
     s = get_settings()
     secret = s.x_webhook_secret  # we re-use the same shared-secret slot
-    if secret and x_signature != secret:
+    if secret and not hmac.compare_digest(x_signature or "", secret):
         raise HTTPException(status_code=401, detail="invalid X-Signature")
 
     raw_payload = {
