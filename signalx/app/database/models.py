@@ -133,6 +133,18 @@ class User(Base):
     # lazily on first GET /referral/me call. Stored on User so we don't have
     # to JOIN on every signup attempt to look up which referrer a code belongs to.
     referral_code = Column(String(16), nullable=True, unique=True, index=True)
+    # TOTP 2FA: secret stored only after the user completes /auth/2fa/verify.
+    # Until totp_enabled=True, /auth/2fa/setup may rotate the secret freely.
+    # Mandatory for VIP and Auto-Pro tiers before /autotrade/{id}/go-live —
+    # see app/api/routes_autotrade.py:go_live for the gate.
+    totp_secret = Column(String(64), nullable=True)
+    totp_enabled = Column(Boolean, nullable=False, default=False)
+    # Risk acknowledgement: monotonically-increasing version that the user
+    # has accepted. Bump RISK_ACK_VERSION in app/compliance/risk_ack.py
+    # when the disclosures page changes materially — clients are then
+    # re-prompted before the next state-mutating compliance gate.
+    risk_ack_version = Column(Integer, nullable=False, default=0)
+    risk_ack_at = Column(DateTime, nullable=True)
 
 
 class KycProfile(Base):
@@ -362,3 +374,29 @@ class SupportTicket(Base):
     status = Column(String(16), default="open", nullable=False, index=True)  # open / triaged / resolved
     response = Column(Text, nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class LeadCapture(Base):
+    """Top-of-funnel email capture from the public landing page.
+
+    Distinct from `InvestorLead` (HNW / institutional pipeline) and
+    `User` (registered authenticated accounts). LeadCapture is purely
+    a marketing list: just an email + the ref/utm context. No PII
+    beyond what the visitor types in voluntarily.
+
+    The Marketing agent broadcasts to this list via /admin/announce
+    (when BROADCAST_ENABLED=true). Unsubscribe is implicit — we drop
+    rows on /leads/unsubscribe and never re-add."""
+
+    __tablename__ = "lead_captures"
+
+    id = Column(Integer, primary_key=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    email = Column(String(256), nullable=False, unique=True, index=True)
+    referral_code = Column(String(16), nullable=True, index=True)
+    utm_source = Column(String(64), nullable=True)
+    utm_medium = Column(String(64), nullable=True)
+    utm_campaign = Column(String(64), nullable=True)
+    # Was this email confirmed via double-opt-in? Default False until the
+    # user clicks the confirmation link sent by the broadcast worker.
+    confirmed = Column(Boolean, nullable=False, default=False)

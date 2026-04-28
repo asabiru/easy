@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 
 from app.auth.deps import get_current_user, get_current_user_optional
 from app.autotrade.crypto import encrypt
+from app.compliance.risk_ack import require_risk_ack
 from app.autotrade.risk_guard import daily_pnl
 from app.config.settings import get_settings
 from app.database.models import AutoTradeOrder, AutoTradeSubscription, User
@@ -81,7 +82,12 @@ def subscribe(
     leave orphaned subscription rows that can't be deleted via the
     user-scoped endpoints. Frontend signup flow logs the user in first
     (POST /auth/register → token → POST /autotrade/subscribe).
+
+    Compliance: requires the caller to have accepted the current
+    risk-disclosure version (POST /compliance/risk-ack). Admin/manager
+    bypass — they're acting on behalf of clients via the dashboard.
     """
+    require_risk_ack(user)
     s = get_settings()
     sub = AutoTradeSubscription(
         # Always store the local-part lowercased so that downstream
@@ -148,6 +154,17 @@ def go_live(
             status_code=409,
             detail="global autotrade kill switch is off (ENABLE_AUTOTRADE=false)",
         )
+    # 2FA gate for the higher tiers — VIP and Auto-Pro both have leverage
+    # and notional that warrant a hardware-key class authn before any live
+    # order dispatch. Lower tiers may still enable 2FA via /auth/2fa/setup.
+    if sub.tier in ("vip", "auto_pro") and user.role != "admin" and not user.totp_enabled:
+        raise HTTPException(
+            status_code=403,
+            detail=f"2FA required for tier '{sub.tier}'. POST /auth/2fa/setup.",
+        )
+    # Risk acknowledgement re-checked at go-live so a bumped
+    # RISK_ACK_VERSION blocks live trading until re-accepted.
+    require_risk_ack(user)
     # Killed/paused subscriptions must go through /resume → paper before
     # they can flip back to live. Otherwise the daily-loss-pause safety
     # mechanism (G4) is bypassable: a user whose sub was paused by the risk

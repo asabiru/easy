@@ -51,6 +51,40 @@
         <button id="kyc-start-btn" class="btn btn-primary" onclick="startKyc()">Start verification</button>
       </section>
 
+      <!-- Compliance: risk-acknowledgement gate. Re-prompts after a
+           material disclosures change (RISK_ACK_VERSION bump). -->
+      <section id="risk-ack-section" class="panel" style="display:none">
+        <h3>Risk acknowledgement required</h3>
+        <p class="muted" style="margin-bottom:12px">
+          Before creating or upgrading any auto-trade subscription you must
+          acknowledge the current <a href="/legal/disclosures.html" target="_blank" rel="noopener">risk disclosures</a>.
+          We re-prompt only when the disclosures change materially.
+        </p>
+        <button id="risk-ack-btn" class="btn btn-primary" onclick="acceptRiskAck()">I have read and accept the disclosures</button>
+      </section>
+
+      <!-- Security: TOTP 2FA enrolment. Required for VIP / Auto-Pro
+           tiers before /autotrade/{id}/go-live. -->
+      <section id="twofa-section" class="panel">
+        <h3>Two-factor authentication</h3>
+        <div id="twofa-body">
+          <div class="skeleton lg"></div>
+        </div>
+      </section>
+
+      <!-- Anti-Fake transparency rail (mirrors the public /signals/filter-stats).
+           Shows clients how much noise we filtered out so they can trust
+           the signal quality vs raw newswire spam. -->
+      <section class="panel">
+        <h3>Filter activity (last 24h)</h3>
+        <div id="filter-rail" class="kpi-grid">
+          <div class="kpi"><div class="label">Filtered</div><div class="value" id="kpi-fil-pct">—</div></div>
+          <div class="kpi"><div class="label">Visible to your tier</div><div class="value" id="kpi-fil-visible">—</div></div>
+          <div class="kpi"><div class="label">Avg signal score</div><div class="value" id="kpi-fil-score">—</div></div>
+          <div class="kpi"><div class="label">Avg fake-risk</div><div class="value" id="kpi-fil-risk">—</div></div>
+        </div>
+      </section>
+
       <section id="subs-section" class="panel">
         <h3>My subscriptions</h3>
         <div style="margin-bottom:12px">
@@ -296,12 +330,107 @@
     async function resumeSub(id) { await SX.api(`/autotrade/${id}/resume`, {method:'POST'}); refresh(); }
     window.paperMode = paperMode; window.killSub = killSub; window.resumeSub = resumeSub;
 
+    async function loadRiskAck() {
+      try {
+        const r = await SX.api('/compliance/risk-ack');
+        const sec = document.getElementById('risk-ack-section');
+        sec.style.display = r.accepted ? 'none' : 'block';
+      } catch (e) { /* anonymous: hide */ }
+    }
+    async function acceptRiskAck() {
+      const r = await SX.api('/compliance/risk-ack');
+      await SX.api('/compliance/risk-ack', {
+        method: 'POST',
+        body: JSON.stringify({ version: r.current_version, accepted: true }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+      loadRiskAck();
+    }
+    window.acceptRiskAck = acceptRiskAck;
+
+    async function loadTwoFa() {
+      const body = document.getElementById('twofa-body');
+      try {
+        const s = await SX.api('/auth/2fa/status');
+        if (s.totp_enabled) {
+          body.innerHTML = `
+            <p class="muted" style="margin:0 0 12px">2FA is <strong style="color:var(--accent)">enabled</strong>. Required for VIP / Auto-Pro tiers before live trading.</p>
+            <div class="row">
+              <input id="twofa-disable-code" placeholder="Current 6-digit code" maxlength="6" inputmode="numeric" />
+              <button class="btn btn-warn" onclick="disableTwoFa()">Disable 2FA</button>
+            </div>`;
+        } else {
+          body.innerHTML = `
+            <p class="muted" style="margin:0 0 12px">Add an authenticator app (Google Authenticator, Authy, 1Password, Bitwarden) for an extra layer of protection. <strong>Required</strong> before VIP / Auto-Pro live trading.</p>
+            <button class="btn btn-primary" onclick="startTwoFaSetup()">Set up 2FA</button>
+            <div id="twofa-setup-area" style="margin-top:14px"></div>`;
+        }
+      } catch (e) { body.innerHTML = '<div class="alert alert-warn">Could not load 2FA status.</div>'; }
+    }
+    async function startTwoFaSetup() {
+      const r = await SX.api('/auth/2fa/setup', {method: 'POST'});
+      const area = document.getElementById('twofa-setup-area');
+      area.innerHTML = `
+        <p class="muted" style="margin:8px 0">Scan this QR with your authenticator app, or paste the secret manually:</p>
+        <div class="mono" style="word-break:break-all;background:var(--surface-2);padding:8px;border-radius:6px">${r.secret}</div>
+        <p class="muted" style="margin:8px 0">Provisioning URI (paste into a TOTP-capable tool):</p>
+        <div class="mono" style="word-break:break-all;background:var(--surface-2);padding:8px;border-radius:6px;font-size:12px">${r.provisioning_uri}</div>
+        <div class="row" style="margin-top:12px">
+          <input id="twofa-verify-code" placeholder="Enter 6-digit code" maxlength="6" inputmode="numeric" />
+          <button class="btn btn-primary" onclick="verifyTwoFa()">Verify & enable</button>
+        </div>`;
+    }
+    async function verifyTwoFa() {
+      const code = document.getElementById('twofa-verify-code').value.trim();
+      try {
+        await SX.api('/auth/2fa/verify', {
+          method: 'POST',
+          body: JSON.stringify({code}),
+          headers: {'Content-Type': 'application/json'},
+        });
+        loadTwoFa();
+      } catch (e) { alert('Invalid code. Try again.'); }
+    }
+    async function disableTwoFa() {
+      const code = document.getElementById('twofa-disable-code').value.trim();
+      try {
+        await SX.api('/auth/2fa/disable', {
+          method: 'POST',
+          body: JSON.stringify({code}),
+          headers: {'Content-Type': 'application/json'},
+        });
+        loadTwoFa();
+      } catch (e) { alert('Invalid code or 2FA already disabled.'); }
+    }
+    window.startTwoFaSetup = startTwoFaSetup;
+    window.verifyTwoFa = verifyTwoFa;
+    window.disableTwoFa = disableTwoFa;
+
+    async function loadFilterRail() {
+      try {
+        const api = window.SIGNALX_API || '';
+        const r = await fetch(api + '/signals/filter-stats');
+        if (!r.ok) return;
+        const s = await r.json();
+        document.getElementById('kpi-fil-pct').textContent =
+          (s.filter_rate_pct != null ? s.filter_rate_pct + '%' : '—');
+        document.getElementById('kpi-fil-visible').textContent = s.visible_count ?? '—';
+        document.getElementById('kpi-fil-score').textContent =
+          (s.avg_visible_score != null ? s.avg_visible_score : '—');
+        document.getElementById('kpi-fil-risk').textContent =
+          (s.avg_visible_fake_risk != null ? s.avg_visible_fake_risk : '—');
+      } catch (e) { /* swallow */ }
+    }
+
     async function refresh() {
       await loadSubs();
       await loadOrders();
       await loadKyc();
       await loadSignals();
       await loadReferral();
+      await loadRiskAck();
+      await loadTwoFa();
+      await loadFilterRail();
     }
 
     (async () => {

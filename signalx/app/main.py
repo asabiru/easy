@@ -11,13 +11,16 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api import (
+    routes_2fa,
     routes_admin,
     routes_auth,
     routes_autotrade,
     routes_client,
+    routes_compliance,
     routes_health,
     routes_investors,
     routes_kyc,
+    routes_leads,
     routes_manager,
     routes_payments,
     routes_referral,
@@ -67,6 +70,9 @@ def create_app() -> FastAPI:
     app.include_router(routes_kyc.router, tags=["kyc"])
     app.include_router(routes_payments.router, tags=["payments"])
     app.include_router(routes_referral.router, tags=["referral"])
+    app.include_router(routes_2fa.router, tags=["auth"])
+    app.include_router(routes_compliance.router, tags=["compliance"])
+    app.include_router(routes_leads.router, tags=["leads"])
 
     # CORS — accept configured origins or default to permissive for MVP
     origins_csv = os.environ.get("CORS_ORIGINS", "*")

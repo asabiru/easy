@@ -20,6 +20,11 @@ os.environ.setdefault("APP_ENV", "dev")
 # Disable rate-limiting in tests so we don't get spurious 429s when a single
 # test hammers /referral/me or /autotrade/{id}/test-keys repeatedly.
 os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
+# Bypass the risk-acknowledgement gate so existing autotrade flow tests
+# don't all need to POST /compliance/risk-ack first. Tests that exercise
+# the gate explicitly should set COMPLIANCE_RISK_ACK_REQUIRED=true within
+# their scope.
+os.environ.setdefault("COMPLIANCE_RISK_ACK_REQUIRED", "false")
 
 
 @pytest.fixture(scope="session")
