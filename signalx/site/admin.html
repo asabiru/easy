@@ -176,6 +176,38 @@
           </table>
         </div>
         <div class="panel" style="margin-top:16px">
+          <h3 style="display:flex;justify-content:space-between;align-items:center">
+            Pending deposits <span class="muted" style="font-size:11px">uncredited · webhook-routed orphans + below-min</span>
+            <span id="treas-pending-count" class="pill">0</span>
+          </h3>
+          <table>
+            <thead><tr><th>ID</th><th>Routed to</th><th>Chain</th><th>TX hash</th><th>Amount (USDT)</th><th>Confirmed</th><th>Actions</th></tr></thead>
+            <tbody id="treas-pending-tbody"><tr><td colspan="7" class="empty">Loading…</td></tr></tbody>
+          </table>
+        </div>
+        <div class="panel" style="margin-top:16px">
+          <h3 style="display:flex;justify-content:space-between;align-items:center">
+            Audit log <span class="muted" style="font-size:11px">last 100 custody_* events</span>
+            <select id="audit-kind-filter" onchange="loadTreasuryAudit()" style="font-size:12px;padding:4px 8px">
+              <option value="">All kinds</option>
+              <option value="custody_deposit_credited">deposit_credited (manual)</option>
+              <option value="custody_deposit_webhook_credited">deposit_webhook_credited</option>
+              <option value="custody_deposit_webhook_pending_review">webhook_pending_review</option>
+              <option value="custody_deposit_reattributed">deposit_reattributed</option>
+              <option value="custody_address_allocated">address_allocated</option>
+              <option value="custody_withdraw_requested">withdraw_requested</option>
+              <option value="custody_withdraw_approved">withdraw_approved</option>
+              <option value="custody_withdraw_sent">withdraw_sent</option>
+              <option value="custody_withdraw_cancelled">withdraw_cancelled</option>
+              <option value="custody_nav_snapshot">nav_snapshot</option>
+            </select>
+          </h3>
+          <table>
+            <thead><tr><th>ID</th><th>Kind</th><th>User</th><th>Actor</th><th>Detail</th><th>At</th></tr></thead>
+            <tbody id="treas-audit-tbody"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
+          </table>
+        </div>
+        <div class="panel" style="margin-top:16px">
           <h3>Manual deposit credit <span class="muted" style="font-size:11px">MVP — before chain webhooks</span></h3>
           <p class="muted" style="font-size:12px;margin-bottom:8px">
             Idempotent on (chain, tx_hash). Re-calling with the same TX returns the existing
@@ -452,6 +484,8 @@
       const [pool, queue] = await Promise.all([
         SX.api('/admin/treasury/pool'),
         SX.api('/admin/treasury/withdrawals/queue'),
+        loadTreasuryPending(),
+        loadTreasuryAudit(),
       ]);
       document.getElementById('treas-aum').textContent = '$' + fmtN(pool.total_aum_usdt);
       document.getElementById('treas-shares').textContent = fmtN(pool.total_shares, 4);
@@ -486,6 +520,75 @@
             </td>
           </tr>`).join('');
     }
+
+    async function loadTreasuryPending() {
+      try {
+        const r = await SX.api('/admin/treasury/deposits/pending');
+        document.getElementById('treas-pending-count').textContent = r.items.length;
+        const tbody = document.getElementById('treas-pending-tbody');
+        if (!r.items.length) { tbody.innerHTML = '<tr><td colspan="7" class="empty">All inbound deposits credited.</td></tr>'; return; }
+        tbody.innerHTML = r.items.map(d => `
+          <tr>
+            <td>#${d.id}</td>
+            <td>${d.is_unattributed
+              ? '<span class="pill" style="background:rgba(250,204,21,0.16);color:#facc15">unattributed</span>'
+              : `user ${d.user_id} · below-min`}</td>
+            <td>${d.chain.toUpperCase()}</td>
+            <td><code style="word-break:break-all;font-size:11px">${(d.tx_hash || '').slice(0, 24)}…</code></td>
+            <td>${fmtN(d.amount_usdt)}</td>
+            <td>${(d.confirmed_at || '').slice(0, 16).replace('T', ' ') || '—'}</td>
+            <td>
+              ${d.is_unattributed
+                ? `<button class="btn btn-primary" onclick="reattributeDeposit(${d.id})">Reattribute</button>`
+                : '<span class="muted" style="font-size:11px">below-min</span>'}
+            </td>
+          </tr>`).join('');
+      } catch (e) {
+        document.getElementById('treas-pending-tbody').innerHTML =
+          `<tr><td colspan="7" class="muted">Error: ${e.message}</td></tr>`;
+      }
+    }
+
+    async function reattributeDeposit(id) {
+      const userId = prompt('Target user ID for deposit #' + id);
+      if (!userId || !/^\d+$/.test(userId)) return;
+      const note = prompt('Justification note (4–512 chars). E.g. "matched via Tron explorer + email confirmation":');
+      if (!note || note.length < 4) { alert('Note required'); return; }
+      try {
+        await SX.api(`/admin/treasury/deposits/${id}/reattribute`, {
+          method: 'POST',
+          body: JSON.stringify({user_id: parseInt(userId, 10), note}),
+        });
+      } catch (e) { alert(e.message); return; }
+      await loadTreasury();
+    }
+    window.reattributeDeposit = reattributeDeposit;
+
+    async function loadTreasuryAudit() {
+      try {
+        const kindEl = document.getElementById('audit-kind-filter');
+        const kind = kindEl ? kindEl.value : '';
+        const url = '/admin/treasury/audit-log?limit=100' + (kind ? '&kind=' + encodeURIComponent(kind) : '');
+        const r = await SX.api(url);
+        const tbody = document.getElementById('treas-audit-tbody');
+        if (!r.items.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty">No events yet.</td></tr>'; return; }
+        tbody.innerHTML = r.items.map(e => {
+          const detail = typeof e.detail === 'string' ? e.detail : JSON.stringify(e.detail || {});
+          return `<tr>
+            <td>#${e.id}</td>
+            <td><code style="font-size:11px">${e.kind.replace(/^custody_/, '')}</code></td>
+            <td>${e.user_id ?? '—'}</td>
+            <td>${e.actor_id ?? '—'}</td>
+            <td style="max-width:380px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${detail.replace(/"/g, '&quot;')}"><span class="muted" style="font-size:11px">${detail.slice(0, 80)}${detail.length > 80 ? '…' : ''}</span></td>
+            <td>${(e.created_at || '').slice(0, 16).replace('T', ' ')}</td>
+          </tr>`;
+        }).join('');
+      } catch (e) {
+        document.getElementById('treas-audit-tbody').innerHTML =
+          `<tr><td colspan="6" class="muted">Error: ${e.message}</td></tr>`;
+      }
+    }
+    window.loadTreasuryAudit = loadTreasuryAudit;
 
     async function approveWd(id) {
       try { await SX.api(`/admin/treasury/withdrawals/${id}/approve`, {method: 'POST'}); }
