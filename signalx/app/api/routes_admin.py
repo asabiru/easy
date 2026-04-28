@@ -185,7 +185,16 @@ def admin_signals(
     user: User = Depends(require_role("admin")),
     limit: int = 100,
 ) -> list[dict[str, Any]]:
-    rows = db.query(Signal).order_by(Signal.created_at.desc()).limit(limit).all()
+    # impact_score and confidence live on the related NewsEvent row, not on
+    # Signal — left-join so signals without an event still serialize cleanly.
+    # (BUG_pr-review-job-f77e2282cf15490e8165842c71a28937_0001.)
+    rows = (
+        db.query(Signal, NewsEvent.impact_score, NewsEvent.confidence)
+        .outerjoin(NewsEvent, Signal.event_id == NewsEvent.id)
+        .order_by(Signal.created_at.desc())
+        .limit(limit)
+        .all()
+    )
     return [
         {
             "id": r.id,
@@ -193,14 +202,14 @@ def admin_signals(
             "symbol": r.symbol,
             "action": r.action,
             "direction": r.direction,
-            "impact_score": r.impact_score,
-            "confidence": r.confidence,
+            "impact_score": impact_score,
+            "confidence": confidence,
             "signal_score": r.signal_score,
             "risk_level": r.risk_level,
             "reason": r.reason,
             "created_at": r.created_at.isoformat() if r.created_at else None,
         }
-        for r in rows
+        for r, impact_score, confidence in rows
     ]
 
 

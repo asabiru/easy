@@ -126,3 +126,58 @@ def test_email_match_is_only_for_anonymous_subscriptions(client_with_db):
     r = client.get("/client/me/subscriptions")
     assert r.status_code == 200
     assert sub.id not in [s["id"] for s in r.json()]
+
+
+def test_admin_signals_serializes_impact_and_confidence_from_news_event(client_with_db):
+    """Regression for BUG_pr-review-job-f77e2282cf15490e8165842c71a28937_0001.
+
+    Signal model has no impact_score / confidence columns — those live on
+    NewsEvent. The admin endpoint must join through event_id and not 500."""
+    from app.database.models import NewsEvent, Signal, User
+    from app.auth.security import hash_password
+
+    client, db = client_with_db
+    db.add(User(email="ad@example.com", password_hash=hash_password("p"),
+                role="admin", is_active=True))
+    db.commit()
+    r = client.post("/auth/login", json={"email": "ad@example.com", "password": "p"})
+    assert r.status_code == 200
+
+    ev = NewsEvent(
+        source="reuters", source_url=None, raw_text="x", normalized_text="x",
+        text_hash="hsig", company="NVIDIA", ticker="NVDA",
+        impact_score=0.7, confidence=0.9,
+    )
+    db.add(ev)
+    db.commit()
+    db.refresh(ev)
+    sig_with_event = Signal(
+        event_id=ev.id, ticker="NVDA", symbol="NVDAUSDT", direction="bullish",
+        action="LONG", signal_score=80, status="new",
+    )
+    # Second signal points at a NewsEvent with NULL impact / confidence to
+    # exercise the join's nullable side without violating the NOT NULL
+    # constraint on Signal.event_id.
+    ev2 = NewsEvent(
+        source="reuters", source_url=None, raw_text="y", normalized_text="y",
+        text_hash="hsig2", company="Tesla", ticker="TSLA",
+        impact_score=None, confidence=None,
+    )
+    db.add(ev2)
+    db.commit()
+    db.refresh(ev2)
+    sig_no_metrics = Signal(
+        event_id=ev2.id, ticker="TSLA", symbol="TSLAUSDT", direction="bullish",
+        action="WATCH", signal_score=40, status="new",
+    )
+    db.add_all([sig_with_event, sig_no_metrics])
+    db.commit()
+
+    r = client.get("/admin/signals")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    by_ticker = {s["ticker"]: s for s in body}
+    assert by_ticker["NVDA"]["impact_score"] == 0.7
+    assert by_ticker["NVDA"]["confidence"] == 0.9
+    assert by_ticker["TSLA"]["impact_score"] is None
+    assert by_ticker["TSLA"]["confidence"] is None
