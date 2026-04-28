@@ -36,20 +36,32 @@ def _x_handles() -> dict[str, dict]:
 
 
 def reliability_score(source: str) -> int:
-    """0..100. Unknown source → 30. Recognises both press sources (sources.json)
-    and known X handles (x_sources.json) — pass `x:elonmusk` or just
-    `elonmusk`. The 'x:' prefix is stripped before lookup."""
+    """0..100. Unknown source → 30.
+
+    Looks up reliability from three catalogs in order:
+      1. data/sources.json  (press sources, wires)
+      2. data/x_sources.json (X handles; key may be `x:<handle>` or `<handle>`)
+      3. data/feeds.json     (RSS / EDGAR / macro / reddit / mastodon feed ids)
+    """
     if not source:
         return 30
     key = source.lower()
     if key.startswith("x:"):
         key = key[2:]
+    if key.startswith("sec:"):
+        key = key[4:]
     row = _sources().get(key)
     if row:
         return int(row.get("reliability", 30))
     xrow = _x_handles().get(key.lstrip("@"))
     if xrow:
         return int(xrow.get("reliability", 30))
+    # Fall through to feeds.json
+    from app.news.sources.registry import all_reliability
+
+    feeds = all_reliability()
+    if key in feeds:
+        return feeds[key]
     return 30
 
 

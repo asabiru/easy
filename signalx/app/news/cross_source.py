@@ -90,14 +90,15 @@ def _get_store():
     if _store is not None:
         return _store
     s = get_settings()
+    window = int(getattr(s, "cross_source_window_sec", _DEFAULT_WINDOW_SEC))
     url = getattr(s, "cross_source_redis_url", None) or s.redis_url
     if url and getattr(s, "cross_source_use_redis", False):
         try:
-            _store = _RedisStore(url)
+            _store = _RedisStore(url, window_sec=window)
             return _store
         except Exception as exc:  # pragma: no cover
             log.warning("cross_source falling back to in-memory: %s", exc)
-    _store = _InMemoryStore()
+    _store = _InMemoryStore(window_sec=window)
     return _store
 
 

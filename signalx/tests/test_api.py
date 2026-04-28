@@ -29,6 +29,27 @@ def test_news_ingest_yields_signal(client):
     assert body["impact_score"] >= 80
 
 
+def test_duplicate_news_does_not_create_second_signal(client, db_session):
+    """Devin Review BUG_0001 regression: same text submitted twice must NOT
+    re-fire a signal or a Telegram alert; second response should report
+    is_duplicate=True and action=SKIP without persisting another Signal row."""
+    from app.database.models import Signal
+
+    text = "Nvidia announces a new GeForce RTX 5090 launch event next month."
+    r1 = client.post("/news/ingest", json={"source": "reuters", "raw_text": text})
+    assert r1.status_code == 200
+    assert r1.json()["is_duplicate"] is False
+    count_after_first = db_session.query(Signal).count()
+
+    r2 = client.post("/news/ingest", json={"source": "reuters", "raw_text": text})
+    assert r2.status_code == 200
+    body = r2.json()
+    assert body["is_duplicate"] is True
+    assert body["action"] == "SKIP"
+    assert body["reason"] == "duplicate news"
+    assert db_session.query(Signal).count() == count_after_first
+
+
 def test_signals_list_after_ingest(client):
     client.post(
         "/news/ingest",

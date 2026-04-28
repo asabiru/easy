@@ -65,6 +65,27 @@ class XIngest(BaseModel):
     has_authoritative_link: bool = False
 
 
+class DiscordIngest(BaseModel):
+    """Webhook payload for posts forwarded from a Discord channel — typically
+    a prop-desk or analyst alerts channel proxied by a small relay bot."""
+
+    channel: str = Field(..., examples=["alpha-desk-alerts"])
+    raw_text: str = Field(..., min_length=3)
+    message_url: str | None = None
+    published_at: datetime | None = None
+    author: str | None = None
+
+
+class RSSIngest(BaseModel):
+    """Webhook payload for RSS / Atom feed entries forwarded by an external
+    poller. The shape is a thin transport for `IngestPayload`."""
+
+    feed_id: str = Field(..., examples=["reuters_business"])
+    raw_text: str = Field(..., min_length=3)
+    entry_url: str | None = None
+    published_at: datetime | None = None
+
+
 # --------------------------------------------------------------------------- #
 # Shared pipeline                                                              #
 # --------------------------------------------------------------------------- #
@@ -88,10 +109,14 @@ def _run_pipeline(
     duplicate = bool(existing) or is_duplicate(normalized.normalized_text)
 
     match = find_company(normalized.normalized_text)
-    if match is None:
+    # Short-circuit BOTH cases: no company match, AND duplicate-of-existing.
+    # Duplicates must never re-fire signals or Telegram alerts.
+    if match is None or duplicate:
         event = _persist_news(
             db, normalized, h,
-            company=None, ticker=None, event_type=None,
+            company=match.company.company if match else None,
+            ticker=match.company.ticker if match else None,
+            event_type=None,
             direction=None, confidence=None, impact=None,
             duplicate=duplicate, fake_risk=0,
         )
@@ -100,9 +125,9 @@ def _run_pipeline(
         return {
             "event_id": event.id,
             "is_duplicate": duplicate,
-            "company": None,
+            "company": match.company.company if match else None,
             "action": "SKIP",
-            "reason": "no company matched",
+            "reason": "duplicate news" if duplicate else "no company matched",
         }
 
     classification: EventClassification = refine(
@@ -285,6 +310,54 @@ def ingest_news_x(
         raw_payload=raw_payload,
         author=author,
         source_id_for_xsrc=f"x:{handle.lower()}",
+    )
+
+
+@router.post("/news/ingest/discord")
+def ingest_news_discord(
+    payload: DiscordIngest,
+    db: Session = Depends(get_db),
+    x_signature: str | None = Header(default=None, alias="X-Signature"),
+) -> dict[str, Any]:
+    """Discord-relay webhook. Same shape as X but no follower/age metadata —
+    fake_risk falls back to the linguistic + cross-source layer."""
+    s = get_settings()
+    secret = s.x_webhook_secret  # we re-use the same shared-secret slot
+    if secret and x_signature != secret:
+        raise HTTPException(status_code=401, detail="invalid X-Signature")
+
+    raw_payload = {
+        "source": f"discord:{payload.channel.lower()}",
+        "source_url": payload.message_url,
+        "raw_text": payload.raw_text,
+        "published_at": payload.published_at,
+    }
+    return _run_pipeline(
+        db=db,
+        raw_payload=raw_payload,
+        author=AuthorMeta(handle=payload.author),
+        source_id_for_xsrc=f"discord:{payload.channel.lower()}",
+    )
+
+
+@router.post("/news/ingest/rss")
+def ingest_news_rss(
+    payload: RSSIngest,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Generic RSS / Atom item passthrough — the external poller has already
+    de-duplicated by entry-id; we still apply our normalized-text dedup."""
+    raw_payload = {
+        "source": payload.feed_id.lower(),
+        "source_url": payload.entry_url,
+        "raw_text": payload.raw_text,
+        "published_at": payload.published_at,
+    }
+    return _run_pipeline(
+        db=db,
+        raw_payload=raw_payload,
+        author=AuthorMeta(is_known_press=reliability_score(payload.feed_id) >= 80),
+        source_id_for_xsrc=payload.feed_id.lower(),
     )
 
 

@@ -39,7 +39,14 @@ def format_signal(
         "Reason:",
         decision.reason,
     ]
-    if decision.entry_price is not None:
+    # Only show the entry/SL/TP block when we actually have all three.
+    # WATCH signals carry an entry_price (current market) but no stop/target,
+    # so we'd otherwise print "Stop: None" / "Target: None" in Telegram.
+    if (
+        decision.entry_price is not None
+        and decision.stop_loss is not None
+        and decision.take_profit is not None
+    ):
         lines += [
             "",
             f"Entry: {decision.entry_price}",
