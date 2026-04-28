@@ -250,3 +250,42 @@ def admin_audit(
         }
         for r in rows
     ]
+
+
+# ─────────────────────────── news poller ─────────────────────────── #
+
+@router.post("/admin/news/poll-now")
+def admin_poll_news_now(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("admin")),
+) -> dict[str, Any]:
+    """Admin-triggered manual fan-out across every configured news source.
+
+    Returns a per-source summary (fetched + emitted_signals + errors) so the
+    operator can see which feeds are healthy. This is the same code path a
+    Celery beat task would use — running it manually is the recommended way
+    to validate a feeds.json change before scheduling it."""
+    from app.news.poller import poll_all_sources
+
+    summaries = poll_all_sources(db)
+    _audit(
+        db,
+        actor=user,
+        action="news.poll_now",
+        target_type=None,
+        target_id=None,
+        payload={"sources": len(summaries), "errors": sum(1 for s in summaries if s.errors)},
+    )
+    db.commit()
+    return {
+        "summaries": [
+            {
+                "source_id": s.source_id,
+                "kind": s.kind,
+                "fetched": s.fetched,
+                "emitted_signals": s.emitted_signals,
+                "errors": s.errors or [],
+            }
+            for s in summaries
+        ]
+    }
