@@ -35,6 +35,7 @@ import io
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth.deps import require_role
@@ -498,7 +499,28 @@ def credit_deposit(
         "shares_credited": shares,
         "share_price": share_price,
     })
-    db.commit()
+    # Race protection (defence-in-depth — admin endpoint is rare/sync,
+    # but the composite UniqueConstraint on Deposit(chain, tx_hash) will
+    # raise IntegrityError if a webhook delivery sneaks in between the
+    # existence check above and this commit. Translate to idempotent return.
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        existing = (
+            db.query(Deposit)
+            .filter(Deposit.chain == payload.chain, Deposit.tx_hash == payload.tx_hash)
+            .first()
+        )
+        if existing is None:
+            raise
+        return {
+            "id": existing.id,
+            "credited": bool(existing.credited),
+            "shares_credited": float(existing.shares_credited or 0.0),
+            "share_price_at_credit": float(existing.share_price_at_credit or 0.0),
+            "idempotent": True,
+        }
     db.refresh(dep)
     return {
         "id": dep.id,
