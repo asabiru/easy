@@ -30,7 +30,10 @@ Hard rules
     — never `==` — to defeat timing oracle attacks.
   * Idempotent on `(chain, tx_hash)`. Re-delivery of the same TX (which
     every provider does on retry) MUST NOT double-credit. Enforced at
-    the DB layer via the existing unique-style index on `Deposit`.
+    the DB layer via the composite UniqueConstraint
+    `uq_custody_deposits_chain_tx_hash` on `Deposit` — a check-then-
+    insert race trips the constraint and the caller catches
+    IntegrityError to return idempotently.
 
 What this does NOT do (deferred)
 --------------------------------
@@ -53,6 +56,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config.settings import get_settings
@@ -435,6 +439,29 @@ def record_inbound_deposit(db: Session, dep: InboundDeposit) -> CreditResult:
             shares_credited=shares,
         )
         db.add(row)
+        # Race-protected insert: a concurrent webhook delivery for the
+        # same (chain, tx_hash) trips the composite UniqueConstraint
+        # on Deposit. We catch IntegrityError, roll back the half-built
+        # session, and reload the existing row → return idempotent.
+        try:
+            db.flush()
+        except IntegrityError:
+            db.rollback()
+            existing = (
+                db.query(Deposit)
+                .filter(Deposit.chain == dep.chain, Deposit.tx_hash == dep.tx_hash)
+                .first()
+            )
+            if existing is None:
+                raise
+            return CreditResult(
+                deposit_id=existing.id,
+                user_id=existing.user_id,
+                credited=bool(existing.credited),
+                idempotent=True,
+                shares_credited=float(existing.shares_credited or 0.0),
+                share_price_at_credit=float(existing.share_price_at_credit or 0.0),
+            )
 
         wallet = (
             db.query(ClientWallet).filter(ClientWallet.user_id == user_id).first()
@@ -494,6 +521,28 @@ def record_inbound_deposit(db: Session, dep: InboundDeposit) -> CreditResult:
         credited=False,
     )
     db.add(row)
+    # Same race protection as the credited path — concurrent webhook
+    # deliveries for the same (chain, tx_hash) → IntegrityError → return
+    # the existing row idempotently.
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        existing = (
+            db.query(Deposit)
+            .filter(Deposit.chain == dep.chain, Deposit.tx_hash == dep.tx_hash)
+            .first()
+        )
+        if existing is None:
+            raise
+        return CreditResult(
+            deposit_id=existing.id,
+            user_id=existing.user_id,
+            credited=bool(existing.credited),
+            idempotent=True,
+            shares_credited=float(existing.shares_credited or 0.0),
+            share_price_at_credit=float(existing.share_price_at_credit or 0.0),
+        )
     try:
         db.add(AmlEvent(
             user_id=sentinel_id,

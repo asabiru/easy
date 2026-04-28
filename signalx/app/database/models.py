@@ -12,6 +12,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
 
@@ -477,9 +478,22 @@ class Deposit(Base):
     Idempotent on `(chain, tx_hash)`. `credited` flips True only after
     the wallet's `shares` is updated and the audit log entry is written
     in the same transaction; the credited path is the single source of
-    truth for share-issuance accounting."""
+    truth for share-issuance accounting.
+
+    Concurrency note
+    ----------------
+    `record_inbound_deposit()` does a check-then-insert for idempotency.
+    Without a DB-level uniqueness guarantee on `(chain, tx_hash)`, two
+    concurrent webhook deliveries for the same on-chain TX could both
+    pass the existence check and double-credit shares (TOCTOU race).
+    The composite UniqueConstraint below makes the second insert raise
+    IntegrityError, which the caller catches and converts to an
+    idempotent return."""
 
     __tablename__ = "custody_deposits"
+    __table_args__ = (
+        UniqueConstraint("chain", "tx_hash", name="uq_custody_deposits_chain_tx_hash"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)

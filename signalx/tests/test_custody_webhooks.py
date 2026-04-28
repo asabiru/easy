@@ -509,3 +509,114 @@ def test_full_webhook_orphan_then_operator_reattribute_credits_shares(
     h = cl.get("/admin/treasury/health").json()
     assert h["unattributed_count"] == 0
     assert h["negative_balances"] == 0
+
+
+# ────────────── security: signature-failure audit + rate limit ────── #
+
+
+def test_signature_failure_writes_audit_row(client_with_db, monkeypatch, request):
+    """A 401 from bad HMAC must produce a custody_deposit_webhook_signature_invalid
+    audit row. Silent 401s would let an attacker probe the secret without
+    any operator-visible signal."""
+    cl, db = client_with_db
+    _enable_custody(monkeypatch, request)
+    _set_secret(monkeypatch, "CUSTODY_TRONGRID_WEBHOOK_SECRET", "secret-trc")
+    payload = {
+        "transaction_id": "TX-BAD-SIG",
+        "to_address": "TADDR",
+        "value": "1000000",
+        "contract_address": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
+    }
+    body = json.dumps(payload).encode()
+    bad_sig = "00" * 32
+    r = cl.post(
+        "/payments/trongrid/webhook", data=body,
+        headers={"x-trongrid-signature": bad_sig, "content-type": "application/json"},
+    )
+    assert r.status_code == 401
+    from app.database.models import AmlEvent
+    rows = (
+        db.query(AmlEvent)
+        .filter(AmlEvent.kind == "custody_deposit_webhook_signature_invalid")
+        .all()
+    )
+    assert len(rows) == 1
+    detail = json.loads(rows[0].detail)
+    assert detail["chain"] == "trc20"
+    assert detail["status"] == 401
+
+
+def test_webhook_rate_limit_returns_429(client_with_db, monkeypatch, request):
+    """Per-IP sliding-window limiter returns 429 once the cap is hit.
+
+    We exercise the alchemy endpoint specifically to avoid sharing the
+    bucket with sibling tests on other chains. RATE_LIMIT_ENABLED must
+    be on for this test (default — but conftest may flip it off)."""
+    cl, _ = client_with_db
+    _enable_custody(monkeypatch, request)
+    _set_secret(monkeypatch, "CUSTODY_ALCHEMY_WEBHOOK_SECRET", "secret-erc")
+    monkeypatch.setenv("RATE_LIMIT_ENABLED", "true")
+
+    # Reach into the route module and patch the limiter cap down to a
+    # small value so the test runs fast. Using internal access is OK
+    # for the test boundary.
+    from app.api import routes_payments_webhooks as rpw
+    rpw._rl_alchemy.cap = 3
+    rpw._rl_alchemy._buckets.clear()
+
+    body = b"{}"
+    headers = {"x-alchemy-signature": "00" * 32, "content-type": "application/json"}
+    statuses = []
+    for _ in range(5):
+        r = cl.post("/payments/alchemy/webhook", data=body, headers=headers)
+        statuses.append(r.status_code)
+    # The first 3 should be 401 / 400 / etc (bad sig + payload); 4+ should be 429.
+    assert statuses[3] == 429, statuses
+    assert statuses[4] == 429, statuses
+
+
+# ─────────── deposit (chain, tx_hash) UniqueConstraint enforcement ──── #
+
+
+def test_concurrent_webhook_inserts_caught_by_unique_constraint(
+    client_with_db, monkeypatch, request,
+):
+    """Direct DB-layer test: two Deposit rows with the same (chain, tx_hash)
+    must violate the composite UniqueConstraint. This is the safety net that
+    record_inbound_deposit() relies on for idempotency under concurrent
+    webhook delivery."""
+    from sqlalchemy.exc import IntegrityError
+    from app.database.models import Deposit, User
+
+    cl, db = client_with_db
+    _register(cl, "race@example.com")
+    u = db.query(User).filter(User.email == "race@example.com").first()
+
+    db.add(Deposit(
+        user_id=u.id, chain="trc20", tx_hash="DUP-TX-1",
+        amount_usdt=10.0, credited=False,
+    ))
+    db.commit()
+
+    db.add(Deposit(
+        user_id=u.id, chain="trc20", tx_hash="DUP-TX-1",
+        amount_usdt=10.0, credited=False,
+    ))
+    raised = False
+    try:
+        db.commit()
+    except IntegrityError:
+        raised = True
+        db.rollback()
+    assert raised, (
+        "Deposit(chain, tx_hash) must be enforced as a unique pair at the "
+        "DB layer to prevent TOCTOU double-credit under concurrent webhook delivery"
+    )
+
+    # Different chain, same tx_hash: not the same TX → must be allowed (we
+    # never see cross-chain TX collisions, but the constraint must NOT block).
+    db.add(Deposit(
+        user_id=u.id, chain="erc20", tx_hash="DUP-TX-1",
+        amount_usdt=10.0, credited=False,
+    ))
+    db.commit()
