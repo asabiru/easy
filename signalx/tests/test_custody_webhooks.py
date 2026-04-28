@@ -372,3 +372,140 @@ def test_verify_bearer_strips_prefix():
     assert verify_bearer("xyz", "Bearer wrong") is False
     assert verify_bearer("", "Bearer xyz") is False
     assert verify_bearer("xyz", "") is False
+
+
+# ──────────── full lifecycle: orphan webhook → operator reattribute ─── #
+
+
+def _admin_login(cl, db, email: str = "admin-lifecycle@example.com"):
+    """Register + promote + login as admin. Same shape as the helper in
+    test_custody.py — duplicated to avoid cross-file imports."""
+    from app.database.models import User
+    cl.headers.pop("Authorization", None); cl.cookies.clear()
+    _register(cl, email)
+    u = db.query(User).filter(User.email == email).first()
+    u.role = "admin"
+    db.commit()
+    cl.headers.pop("Authorization", None); cl.cookies.clear()
+    cl.post("/auth/login", json={"email": email, "password": "pw1234567"})
+
+
+def test_full_webhook_orphan_then_operator_reattribute_credits_shares(
+    client_with_db, monkeypatch, request,
+):
+    """End-to-end QA flow: an unmatched TronGrid deposit is sentinel-routed,
+    operator reattributes it via the admin endpoint, shares are credited,
+    audit trail is correct, second webhook delivery of the same TX is
+    a no-op (idempotent)."""
+    from app.config.settings import get_settings
+    from app.database.models import (
+        AmlEvent, ClientWallet, Deposit, DepositAddress, User,
+    )
+
+    cl, db = client_with_db
+    _enable_custody(monkeypatch, request)
+    _set_secret(monkeypatch, "CUSTODY_TRONGRID_WEBHOOK_SECRET", "secret-trc")
+
+    # 1. Real client exists but has no DepositAddress → webhook orphan.
+    _register(cl, "real-client@example.com")
+    cl.headers.pop("Authorization", None); cl.cookies.clear()
+
+    # 2. Webhook arrives — 100 USDT, no match.
+    secret = get_settings().custody_trongrid_webhook_secret
+    payload = {
+        "transaction_id": "TX-LIFECYCLE-1",
+        "to_address": "TUNKNOWN_ADDRESS",
+        "memo": "no-such-memo",
+        "value": "100000000",  # 100 USDT in 6dp
+        "contract_address": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
+        "confirmed": True,
+    }
+    body = json.dumps(payload).encode()
+    sig = _sign(secret, body)
+    r = cl.post(
+        "/payments/trongrid/webhook", data=body,
+        headers={
+            "x-trongrid-signature": sig,
+            "content-type": "application/json",
+        },
+    )
+    assert r.status_code == 200
+    j = r.json()
+    assert j["credited"] is False
+    assert j["chain"] == "trc20"
+    deposit_id = j["deposit_id"]
+
+    # 3. Sentinel-routed: deposit is anchored to unassigned@signalx.internal.
+    sentinel = db.query(User).filter(User.email == "unassigned@signalx.internal").first()
+    assert sentinel is not None, "sentinel user must be auto-created"
+    dep = db.query(Deposit).filter(Deposit.id == deposit_id).first()
+    assert dep.user_id == sentinel.id
+    assert dep.credited is False
+
+    # 4. Re-delivery → idempotent, same row, no second audit entry.
+    r2 = cl.post(
+        "/payments/trongrid/webhook", data=body,
+        headers={
+            "x-trongrid-signature": sig,
+            "content-type": "application/json",
+        },
+    )
+    assert r2.status_code == 200
+    assert r2.json()["idempotent"] is True
+    assert r2.json()["deposit_id"] == deposit_id
+    assert db.query(Deposit).filter(Deposit.tx_hash == "TX-LIFECYCLE-1").count() == 1
+
+    # 5. Operator visits /admin/treasury/deposits/pending — sees orphan.
+    _admin_login(cl, db)
+    pending = cl.get("/admin/treasury/deposits/pending").json()
+    pend_ids = [it["id"] for it in pending["items"]]
+    assert deposit_id in pend_ids
+    orphan_row = next(it for it in pending["items"] if it["id"] == deposit_id)
+    assert orphan_row["is_unattributed"] is True
+
+    # 6. Operator reattributes to the real client.
+    real = db.query(User).filter(User.email == "real-client@example.com").first()
+    r3 = cl.post(
+        f"/admin/treasury/deposits/{deposit_id}/reattribute",
+        json={
+            "user_id": real.id,
+            "note": "Verified TX on Tronscan; client confirmed via support ticket #4471",
+        },
+    )
+    assert r3.status_code == 200, r3.text
+    body3 = r3.json()
+    assert body3["credited"] is True
+    assert body3["shares_credited"] > 0
+
+    # 7. Deposit row now points to real user, credited=True.
+    db.expire_all()
+    dep2 = db.query(Deposit).filter(Deposit.id == deposit_id).first()
+    assert dep2.user_id == real.id
+    assert dep2.credited is True
+
+    # 8. ClientWallet exists for real user, shares > 0.
+    wallet = db.query(ClientWallet).filter(ClientWallet.user_id == real.id).first()
+    assert wallet is not None
+    assert float(wallet.shares) > 0
+    assert float(wallet.balance_usdt) > 0
+
+    # 9. Audit trail: webhook_pending_review + deposit_reattributed both recorded.
+    audit_kinds = {
+        e.kind for e in db.query(AmlEvent).filter(AmlEvent.kind.like("custody_%")).all()
+    }
+    assert "custody_deposit_webhook_pending_review" in audit_kinds
+    assert "custody_deposit_reattributed" in audit_kinds
+
+    # 10. Pending queue no longer lists this deposit.
+    pending2 = cl.get("/admin/treasury/deposits/pending").json()
+    assert deposit_id not in [it["id"] for it in pending2["items"]]
+
+    # 11. CSV audit-log mirrors the JSON audit and includes our reattribute event.
+    csv_resp = cl.get("/admin/treasury/audit-log.csv")
+    assert csv_resp.status_code == 200
+    assert "custody_deposit_reattributed" in csv_resp.text
+
+    # 12. Treasury health: invariant ok, 0 unattributed remaining.
+    h = cl.get("/admin/treasury/health").json()
+    assert h["unattributed_count"] == 0
+    assert h["negative_balances"] == 0
