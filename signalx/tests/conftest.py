@@ -95,3 +95,35 @@ def client(monkeypatch):
         yield c
     app.dependency_overrides.clear()
     engine.dispose()
+
+
+@pytest.fixture()
+def client_with_db(monkeypatch):
+    """TestClient + a Session bound to the SAME engine, so tests can seed
+    rows directly and have them visible through the API. Yields (client, db).
+    """
+    from fastapi.testclient import TestClient
+    from sqlalchemy.orm import sessionmaker
+
+    from app.database.session import Base, get_db
+    import app.database.models  # noqa: F401
+
+    engine = _make_inmemory_engine()
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine, future=True)
+    db = Session()
+
+    def _override_get_db():
+        try:
+            yield db
+        finally:
+            pass  # request-scoped override should not close the shared session
+
+    from app.main import app
+
+    app.dependency_overrides[get_db] = _override_get_db
+    with TestClient(app) as c:
+        yield c, db
+    app.dependency_overrides.clear()
+    db.close()
+    engine.dispose()

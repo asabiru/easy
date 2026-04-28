@@ -76,10 +76,12 @@ def evaluate_pre_order(
     return GuardDecision(True, "ok")
 
 
-def starting_of_day_balance(orders: Iterable, now: datetime | None = None) -> float:
-    """Best-effort: take the earliest 'balance_before' value among today's
-    orders. Falls back to 0 if no orders yet today (caller fills with current
-    balance)."""
+def starting_of_day_balance(orders: Iterable, now: datetime | None = None) -> float | None:
+    """Best-effort: return the earliest 'balance_before' among today's orders,
+    or None if there are no today-orders (so the caller can fall back to the
+    previous day's balance or DEFAULT_PAPER_BALANCE). Returning None instead
+    of 0.0 is intentional — 0.0 is a legitimate balance (drained account)
+    and must be distinguishable from "no data"."""
     if now is None:
         now = datetime.now(timezone.utc)
     day_start = (now - timedelta(hours=now.hour, minutes=now.minute, seconds=now.second)).replace(microsecond=0)
@@ -90,8 +92,9 @@ def starting_of_day_balance(orders: Iterable, now: datetime | None = None) -> fl
             if earliest is None or ts < earliest.created_at:
                 earliest = o
     if earliest is None:
-        return 0.0
-    return float(getattr(earliest, "balance_before", 0.0) or 0.0)
+        return None
+    val = getattr(earliest, "balance_before", None)
+    return float(val) if val is not None else None
 
 
 def daily_pnl(orders: Iterable, now: datetime | None = None) -> float:

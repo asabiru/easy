@@ -380,3 +380,19 @@ def test_x_webhook_signature_constant_time(client, monkeypatch):
     assert r.status_code == 200, r.text
 
     get_settings.cache_clear()  # type: ignore[attr-defined]
+
+
+def test_starting_of_day_balance_returns_none_when_empty():
+    """Regression for BUG_pr-review-job-9f12362cc0a345f98b51e829bdd1d90f_0001/0002.
+
+    starting_of_day_balance returns None (not 0.0) when there are no
+    today-orders, so the executor's `is not None` ladder can fall back
+    correctly to the previous balance or DEFAULT_PAPER_BALANCE."""
+    from app.autotrade.risk_guard import starting_of_day_balance
+
+    assert starting_of_day_balance([]) is None
+    # Also: when the only order has balance_before=None
+    class Stub:
+        created_at = None
+        balance_before = None
+    assert starting_of_day_balance([Stub()]) is None

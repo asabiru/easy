@@ -1,6 +1,7 @@
 """Manager (sales) endpoints — investor-lead CRM."""
 from __future__ import annotations
 
+import json
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -8,7 +9,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.auth.deps import require_role
-from app.database.models import InvestorLead, User
+from app.database.models import AuditLog, InvestorLead, User
 from app.database.session import get_db
 
 router = APIRouter()
@@ -60,14 +61,30 @@ def update_lead(
     lead = db.query(InvestorLead).filter(InvestorLead.id == lead_id).first()
     if lead is None:
         raise HTTPException(status_code=404, detail="lead not found")
-    if payload.assign_to_me:
+    # Capture pre-state for the audit record so reviewers can reconstruct
+    # what changed without diffing two snapshots.
+    changes: dict[str, Any] = {}
+    if payload.assign_to_me and lead.assigned_manager_id != user.id:
+        changes["assigned_manager_id"] = {"from": lead.assigned_manager_id, "to": user.id}
         lead.assigned_manager_id = user.id
-    if payload.status:
+    if payload.status and payload.status != lead.status:
+        changes["status"] = {"from": lead.status, "to": payload.status}
         lead.status = payload.status
     if payload.note_append:
         prefix = f"\n[{user.email}] " if lead.notes else f"[{user.email}] "
         lead.notes = (lead.notes or "") + prefix + payload.note_append
+        changes["note_appended"] = payload.note_append[:200]
     db.add(lead)
+    if changes:
+        db.add(
+            AuditLog(
+                actor_user_id=user.id,
+                action="lead.update",
+                target_type="investor_lead",
+                target_id=lead.id,
+                payload=json.dumps(changes),
+            )
+        )
     db.commit()
     db.refresh(lead)
     return _serialize(lead)
