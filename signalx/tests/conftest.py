@@ -39,6 +39,16 @@ def _make_inmemory_engine():
     )
 
 
+@pytest.fixture(autouse=True)
+def _reset_dedup_state():
+    """Reset the global in-memory deduplicator window between tests so test
+    order doesn't leak duplicate detection across cases."""
+    from app.news.deduplicator import reset_default
+
+    reset_default()
+    yield
+
+
 @pytest.fixture()
 def db_session():
     """Fresh SQLAlchemy session backed by SQLite in-memory."""

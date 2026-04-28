@@ -25,10 +25,12 @@ def send(message: str) -> bool:
         return False
 
     url = f"https://api.telegram.org/bot{s.telegram_bot_token}/sendMessage"
+    # Plain text on purpose: signal bodies contain free-form news copy that
+    # may include `<`, `>`, `&`, and other characters that would break HTML or
+    # MarkdownV2 parsing. Telegram renders plain text fine.
     payload = {
         "chat_id": s.telegram_chat_id,
         "text": message,
-        "parse_mode": "HTML",
         "disable_web_page_preview": True,
     }
     try:

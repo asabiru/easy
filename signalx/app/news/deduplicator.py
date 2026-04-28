@@ -42,3 +42,9 @@ _default = Deduplicator()
 
 def is_duplicate(normalized_text: str) -> bool:
     return _default.is_duplicate(normalized_text)
+
+
+def reset_default() -> None:
+    """Reset the module-level rolling-window state (used by tests)."""
+    global _default
+    _default = Deduplicator()

@@ -103,9 +103,9 @@ class ExchangeClient:
             if bid and ask and last:
                 spread_bps = round((ask - bid) / last * 10000, 2)
 
-            change_pct = ticker.get("percentage")  # last 24h on most exchanges
             funding = self._safe_funding(unified)
             oi = self._safe_open_interest(unified)
+            ohlcv_metrics = self._safe_ohlcv_metrics(unified)
 
             return MarketData(
                 exchange=self.exchange_id,
@@ -114,10 +114,13 @@ class ExchangeClient:
                 bid=float(bid) if bid is not None else None,
                 ask=float(ask) if ask is not None else None,
                 spread=spread_bps,
-                volume_1m=None,  # ccxt doesn't expose 1m volume on ticker; future: OHLCV
-                volume_5m=float(ticker.get("baseVolume")) if ticker.get("baseVolume") else None,
-                price_change_1m=None,
-                price_change_5m=float(change_pct) if change_pct is not None else None,
+                # Short-window metrics derived from 1m OHLCV bars; never the
+                # 24h `baseVolume` / `percentage` from ticker (those are wrong
+                # for short-horizon risk gates and signal confirmation).
+                volume_1m=ohlcv_metrics["volume_1m"],
+                volume_5m=ohlcv_metrics["volume_5m"],
+                price_change_1m=ohlcv_metrics["price_change_1m"],
+                price_change_5m=ohlcv_metrics["price_change_5m"],
                 funding_rate=funding,
                 open_interest=oi,
             )
@@ -144,6 +147,62 @@ class ExchangeClient:
         except Exception:
             return None
         return None
+
+    def _safe_ohlcv_metrics(self, unified: str) -> dict[str, float | None]:
+        """Fetch the last few 1m bars and derive short-window metrics.
+
+        Returns a dict with keys: price_change_1m, price_change_5m, volume_1m,
+        volume_5m. Values are floats or None when data is unavailable.
+        """
+        empty: dict[str, float | None] = {
+            "price_change_1m": None,
+            "price_change_5m": None,
+            "volume_1m": None,
+            "volume_5m": None,
+        }
+        try:
+            if not hasattr(self._ex, "fetch_ohlcv"):
+                return empty
+            # Pull 6 bars: closed bars [-6..-2], current forming bar at [-1].
+            bars = self._ex.fetch_ohlcv(unified, timeframe="1m", limit=6)  # type: ignore[union-attr]
+            if not bars or len(bars) < 2:
+                return empty
+            # Use closed bars only — drop the in-progress final candle.
+            closed = bars[:-1] if len(bars) >= 2 else bars
+            if len(closed) < 2:
+                return empty
+
+            last = closed[-1]
+            prev_1m = closed[-2]
+            # Each row: [ts, open, high, low, close, volume]
+            close_now = float(last[4])
+            close_prev_1m = float(prev_1m[4])
+            vol_1m = float(last[5])
+
+            price_change_1m = None
+            if close_prev_1m:
+                price_change_1m = round(
+                    (close_now - close_prev_1m) / close_prev_1m * 100.0, 4
+                )
+
+            window5 = closed[-5:] if len(closed) >= 5 else closed
+            close_5m_ago = float(window5[0][4])
+            vol_5m = sum(float(b[5]) for b in window5)
+            price_change_5m = None
+            if close_5m_ago:
+                price_change_5m = round(
+                    (close_now - close_5m_ago) / close_5m_ago * 100.0, 4
+                )
+
+            return {
+                "price_change_1m": price_change_1m,
+                "price_change_5m": price_change_5m,
+                "volume_1m": vol_1m,
+                "volume_5m": vol_5m,
+            }
+        except Exception as exc:
+            log.warning("fetch_ohlcv failed unified=%s err=%s", unified, exc)
+            return empty
 
 
 _singleton: ExchangeClient | None = None

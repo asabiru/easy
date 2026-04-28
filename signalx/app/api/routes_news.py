@@ -174,6 +174,11 @@ def _persist_news(
     impact: int | None,
     duplicate: bool,
 ) -> NewsEvent:
+    """Add a NewsEvent and flush to obtain its id, without committing.
+
+    The caller (`ingest_news`) commits once after MarketSnapshot + Signal are
+    attached so the whole ingest is atomic — preventing orphan NewsEvent rows
+    if the snapshot/signal write fails."""
     event = NewsEvent(
         received_at=normalized.received_at,
         published_at=normalized.published_at,
@@ -193,6 +198,6 @@ def _persist_news(
         fake_risk=0.0,
     )
     db.add(event)
-    db.commit()
+    db.flush()
     db.refresh(event)
     return event
