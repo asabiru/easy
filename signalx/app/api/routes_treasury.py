@@ -766,13 +766,29 @@ def treasury_health(
         .count()
     )
 
+    # Webhook signature-failure spike: a hostile party probing for a
+    # webhook secret leaves a trail of custody_deposit_webhook_signature_invalid
+    # rows. >= 10 in the last hour is highly anomalous (legitimate
+    # provider with a stale secret would error continuously, but an
+    # operator should still be paged to rotate the secret regardless).
+    one_hour_ago = datetime.utcnow() - timedelta(hours=1)
+    sig_failures_1h = (
+        db.query(AmlEvent)
+        .filter(
+            AmlEvent.kind == "custody_deposit_webhook_signature_invalid",
+            AmlEvent.created_at >= one_hour_ago,
+        )
+        .count()
+    )
+
     # Aggregate status. `critical` triggers paging.
-    if negatives > 0 or not invariant_ok:
+    if negatives > 0 or not invariant_ok or sig_failures_1h >= 10:
         status = "critical"
     elif (
         (nav_age_hours is not None and nav_age_hours > 24)
         or unattributed > 0
         or pending_wd >= 5
+        or sig_failures_1h >= 3
     ):
         status = "warn"
     else:
@@ -789,6 +805,7 @@ def treasury_health(
         "unattributed_count": unattributed,
         "pending_withdrawal_count": pending_wd,
         "latest_nav_age_hours": nav_age_hours,
+        "webhook_signature_failures_1h": sig_failures_1h,
     }
 
 

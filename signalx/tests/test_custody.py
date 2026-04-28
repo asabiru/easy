@@ -704,6 +704,45 @@ def test_treasury_health_warn_on_unattributed_deposit(client_with_db):
     assert body["overall_status"] == "warn"
 
 
+def test_treasury_health_flags_signature_failure_spike(client_with_db):
+    """Webhook signature failures in last 1h roll into the health status:
+    >=3 → warn, >=10 → critical. Operator sees the count in the dashboard
+    detail line and rotates the secret."""
+    cl, db = client_with_db
+    _register(cl, "client@example.com")
+    cl.headers.pop("Authorization", None); cl.cookies.clear()
+    _admin_login(cl, db)
+    from app.database.models import AmlEvent
+
+    for i in range(4):
+        db.add(AmlEvent(
+            user_id=None, actor_id=None,
+            kind="custody_deposit_webhook_signature_invalid",
+            detail=f'{{"chain":"trc20","ip":"1.2.3.{i}","status":401}}',
+        ))
+    db.commit()
+
+    r = cl.get("/admin/treasury/health")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["webhook_signature_failures_1h"] == 4
+    assert body["overall_status"] == "warn"
+
+    for i in range(7):
+        db.add(AmlEvent(
+            user_id=None, actor_id=None,
+            kind="custody_deposit_webhook_signature_invalid",
+            detail=f'{{"chain":"erc20","ip":"5.6.7.{i}","status":401}}',
+        ))
+    db.commit()
+
+    r2 = cl.get("/admin/treasury/health")
+    assert r2.status_code == 200
+    body2 = r2.json()
+    assert body2["webhook_signature_failures_1h"] >= 10
+    assert body2["overall_status"] == "critical"
+
+
 def test_treasury_health_critical_on_negative_balance(client_with_db):
     cl, db = client_with_db
     _register(cl, "client@example.com")

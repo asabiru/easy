@@ -497,6 +497,7 @@
         if (h.pending_withdrawal_count) bits.push(`${h.pending_withdrawal_count} pending wd`);
         if (h.latest_nav_age_hours !== null && h.latest_nav_age_hours !== undefined) bits.push(`NAV ${h.latest_nav_age_hours.toFixed(1)}h old`);
         if (h.negative_balances) bits.push(`${h.negative_balances} NEGATIVE`);
+        if (h.webhook_signature_failures_1h) bits.push(`${h.webhook_signature_failures_1h} sig-fail/1h`);
         document.getElementById('treas-health-detail').textContent = bits.join(' · ') || 'all clean';
       } catch (e) {
         document.getElementById('treas-health').textContent = 'ERR';
