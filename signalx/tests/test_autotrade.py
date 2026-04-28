@@ -8,6 +8,21 @@ from app.autotrade.crypto import decrypt, encrypt
 from app.autotrade.risk_guard import evaluate_pre_order
 
 
+def _register(client, email: str, password: str = "testpass123") -> dict:
+    """Register a new user. TestClient persists the session cookie so all
+    subsequent calls on `client` are authenticated as this user."""
+    r = client.post(
+        "/auth/register",
+        json={"email": email, "password": password, "full_name": email.split("@")[0]},
+    )
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def _logout(client) -> None:
+    client.post("/auth/logout")
+
+
 def test_encrypt_round_trip():
     cipher = encrypt("super-secret-api-key")
     assert cipher and cipher != "super-secret-api-key"
@@ -20,6 +35,7 @@ def test_encrypt_empty():
 
 
 def test_subscribe_flow_starts_in_paper_mode(client):
+    _register(client, "alice@example.com")
     r = client.post(
         "/autotrade/subscribe",
         json={
@@ -44,6 +60,7 @@ def test_subscribe_flow_starts_in_paper_mode(client):
 
 
 def test_kill_switch_blocks_orders(client):
+    _register(client, "bob@example.com")
     r = client.post(
         "/autotrade/subscribe",
         json={
@@ -64,6 +81,7 @@ def test_kill_switch_blocks_orders(client):
 
 
 def test_go_live_refused_when_global_kill_switch_off(client):
+    _register(client, "carol@example.com")
     r = client.post(
         "/autotrade/subscribe",
         json={
@@ -133,7 +151,7 @@ def test_risk_guard_paper_mode_blocks_live_but_no_pause():
 def test_subscribe_preserves_explicit_zero_for_min_signal_score(client):
     """Regression: passing min_signal_score=0 must store 0, not the
     default 60 — `or` would silently override it."""
-    from app.database.models import AutoTradeSubscription
+    _register(client, "zero@example.com")
 
     r = client.post(
         "/autotrade/subscribe",
@@ -161,6 +179,7 @@ def test_signal_dispatch_creates_paper_order(client):
     → AutoTradeOrder row recorded in paper mode (because the global kill
     switch ENABLE_AUTOTRADE is off, even a 'live'-flagged sub records paper
     orders so the client still sees them in their dashboard)."""
+    _register(client, "dave@example.com")
     r = client.post(
         "/autotrade/subscribe",
         json={
@@ -194,3 +213,51 @@ def test_signal_dispatch_creates_paper_order(client):
     assert o["symbol"] == "NVDAUSDT"
     assert o["side"] == "buy"
     assert o["status"] == "filled"
+
+
+def test_autotrade_endpoints_reject_anonymous(client):
+    """Critical security regression: mutation + status endpoints must require
+    authentication. Anonymous callers must get 401."""
+    # Create a sub via an authenticated user, then drop the cookie and
+    # verify a fresh anonymous call cannot touch it.
+    _register(client, "owner@example.com")
+    r = client.post(
+        "/autotrade/subscribe",
+        json={
+            "email": "owner@example.com",
+            "tier": "auto_lite",
+            "exchange_id": "bybit",
+            "api_key": "ABCD1234EFGH",
+            "api_secret": "WXYZ9876MNOP",
+        },
+    )
+    sub_id = r.json()["subscription_id"]
+    client.cookies.clear()
+    for path in ("kill", "paper-mode", "resume", "go-live"):
+        rr = client.post(f"/autotrade/{sub_id}/{path}")
+        assert rr.status_code == 401, f"{path} must require auth, got {rr.status_code}"
+    rr = client.get(f"/autotrade/{sub_id}/status")
+    assert rr.status_code == 401
+
+
+def test_autotrade_endpoints_reject_other_user(client):
+    """Another logged-in user must not be able to mutate someone else's sub."""
+    _register(client, "owner2@example.com")
+    r = client.post(
+        "/autotrade/subscribe",
+        json={
+            "email": "owner2@example.com",
+            "tier": "auto_lite",
+            "exchange_id": "bybit",
+            "api_key": "ABCD1234EFGH",
+            "api_secret": "WXYZ9876MNOP",
+        },
+    )
+    sub_id = r.json()["subscription_id"]
+    # log out, register a different user
+    client.cookies.clear()
+    _register(client, "stranger@example.com")
+    rr = client.post(f"/autotrade/{sub_id}/kill")
+    assert rr.status_code == 403
+    rr = client.get(f"/autotrade/{sub_id}/status")
+    assert rr.status_code == 403

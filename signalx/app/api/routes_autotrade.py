@@ -25,7 +25,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 
-from app.auth.deps import get_current_user_optional
+from app.auth.deps import get_current_user, get_current_user_optional
 from app.autotrade.crypto import encrypt
 from app.autotrade.risk_guard import daily_pnl
 from app.config.settings import get_settings
@@ -35,6 +35,20 @@ from app.database.session import get_db
 router = APIRouter()
 
 TIERS = ("manual_plus", "auto_lite", "auto_pro", "vip")
+
+
+def _own_or_admin(db: Session, sub_id: int, user: User) -> AutoTradeSubscription:
+    """Fetch subscription and assert the caller owns it (by user_id or email)
+    or is an admin. Used by every mutation + status endpoint to prevent
+    anonymous / cross-tenant access."""
+    sub = _get_sub(db, sub_id)
+    if user.role == "admin":
+        return sub
+    if sub.user_id is not None and sub.user_id == user.id:
+        return sub
+    if sub.user_id is None and (sub.email or "").lower() == (user.email or "").lower():
+        return sub
+    raise HTTPException(status_code=403, detail="not your subscription")
 
 
 class SubscribeIn(BaseModel):
@@ -88,9 +102,13 @@ def subscribe(
 
 
 @router.post("/autotrade/{sub_id}/go-live")
-def go_live(sub_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+def go_live(
+    sub_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
     s = get_settings()
-    sub = _get_sub(db, sub_id)
+    sub = _own_or_admin(db, sub_id, user)
     if not s.enable_autotrade:
         raise HTTPException(
             status_code=409,
@@ -109,8 +127,12 @@ def go_live(sub_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
 
 
 @router.post("/autotrade/{sub_id}/kill")
-def kill(sub_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
-    sub = _get_sub(db, sub_id)
+def kill(
+    sub_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    sub = _own_or_admin(db, sub_id, user)
     sub.status = "killed"
     sub.live_trading_enabled = False
     db.add(sub)
@@ -119,8 +141,12 @@ def kill(sub_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
 
 
 @router.post("/autotrade/{sub_id}/paper-mode")
-def paper_mode(sub_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
-    sub = _get_sub(db, sub_id)
+def paper_mode(
+    sub_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    sub = _own_or_admin(db, sub_id, user)
     sub.status = "paper"
     sub.live_trading_enabled = False
     db.add(sub)
@@ -129,8 +155,12 @@ def paper_mode(sub_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
 
 
 @router.post("/autotrade/{sub_id}/resume")
-def resume(sub_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
-    sub = _get_sub(db, sub_id)
+def resume(
+    sub_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    sub = _own_or_admin(db, sub_id, user)
     if sub.status not in ("paused", "killed"):
         raise HTTPException(status_code=409, detail=f"subscription is {sub.status}, nothing to resume")
     sub.status = "paper"
@@ -142,8 +172,12 @@ def resume(sub_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
 
 
 @router.get("/autotrade/{sub_id}/status")
-def status(sub_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
-    sub = _get_sub(db, sub_id)
+def status(
+    sub_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    sub = _own_or_admin(db, sub_id, user)
     orders = (
         db.query(AutoTradeOrder)
         .filter(AutoTradeOrder.subscription_id == sub.id)

@@ -60,7 +60,7 @@ def system_overview(
         "subs_killed": db.query(AutoTradeSubscription).filter(AutoTradeSubscription.status == "killed").count(),
         "signals_24h": db.query(Signal).filter(Signal.created_at >= last_24h).count(),
         "news_events_24h": db.query(NewsEvent).filter(NewsEvent.created_at >= last_24h).count(),
-        "open_tickets": db.query(SupportTicket).filter(SupportTicket.status == "new").count(),
+        "open_tickets": db.query(SupportTicket).filter(SupportTicket.status == "open").count(),
         "investor_leads_open": db.query(InvestorLead).filter(InvestorLead.status.in_(("new", "contacted"))).count(),
     }
 
