@@ -244,6 +244,11 @@ daily-pro-rata) accrues on the same path.
 
 ### Operator runbook
 
+Full day-to-day playbook lives in
+[`docs/custody-operator-runbook.md`](docs/custody-operator-runbook.md)
+— covers daily reconcile loop, scenario triage, audit-kinds
+reference, and escalation. Quick-reference table:
+
 | Scenario                                     | Action                                                                  |
 |---------------------------------------------|-------------------------------------------------------------------------|
 | Webhook stuck retrying (4xx in our logs)     | Check `CUSTODY_LIVE_DEPOSITS_ENABLED` + per-chain secret env vars       |
