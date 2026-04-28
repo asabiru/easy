@@ -58,6 +58,11 @@ def ingest_news(payload: NewsIngest, db: Session = Depends(get_db)) -> dict[str,
             direction=None, confidence=None, impact=None,
             duplicate=duplicate,
         )
+        # _persist_news only flushes; commit here so the unmatched event is
+        # actually durable. Without this, get_db() closes the session and the
+        # row is rolled back, leaving the API caller with a phantom event_id.
+        db.commit()
+        db.refresh(event)
         return {
             "event_id": event.id,
             "is_duplicate": duplicate,
