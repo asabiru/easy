@@ -115,6 +115,17 @@ class Settings(BaseSettings):
     custody_withdraw_cooldown_hours: int = 24
     custody_min_withdraw_usdt: float = 10.0
 
+    # Webhook HMAC secrets — one per chain. Empty = chain-disabled
+    # (POST /payments/<chain>/webhook returns 503). All secrets MUST be
+    # rotated post-incident. The webhook handler verifies the chain-
+    # specific signature scheme — see app/custody/webhooks.py.
+    custody_trongrid_webhook_secret: str = ""   # TronGrid HMAC-SHA256
+    custody_alchemy_webhook_secret: str = ""    # Alchemy "X-Alchemy-Signature" HMAC-SHA256
+    custody_helius_webhook_secret: str = ""     # Helius shared "Authorization" bearer token
+    custody_bscscan_webhook_secret: str = ""    # custom listener HMAC-SHA256
+    # TON Wallet Pay already has its own ton_wallet_pay_webhook_secret;
+    # we reuse it here for managed-pool deposits.
+
     # Data files
     data_dir: Path = Field(default_factory=lambda: DATA_DIR)
 

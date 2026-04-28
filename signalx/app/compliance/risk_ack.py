@@ -20,8 +20,13 @@ from app.database.models import User
 
 
 # Version 1: initial release of /legal/disclosures.html.
+# Version 2: custody / managed-pool section added (Mode B). Clients
+# who only ack'd v1 (execution-only) MUST re-acknowledge before any
+# /wallet/* endpoint succeeds — the disclosures changed materially:
+# we now describe holding their USDT, NAV pricing, withdrawal queueing,
+# performance + management fees, and the licence-attestation gate.
 # Bump on material change (new section, OFAC list update, etc.).
-RISK_ACK_VERSION: int = 1
+RISK_ACK_VERSION: int = 2
 
 
 def _gate_enabled() -> bool:

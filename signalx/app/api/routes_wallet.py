@@ -36,6 +36,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.auth.deps import get_current_user
+from app.compliance.risk_ack import require_risk_ack
 from app.config.settings import get_settings
 from app.custody import addresses as addr_mod
 from app.custody import shares as shares_math
@@ -187,6 +188,12 @@ def deposit_address(
                 "the self-attest override; refusing to issue a deposit address"
             ),
         )
+    # Custody-aware risk acknowledgement gate. RISK_ACK_VERSION=2 added
+    # the managed-pool / Mode B section; clients on v1 (execution-only
+    # ack) MUST re-accept before we can hand them a deposit address.
+    # 412 Precondition Failed is the correct surface — the UI catches it
+    # and replays /compliance/risk-ack before retrying.
+    require_risk_ack(user)
     # KYC is mandatory regardless of `kyc_required` global toggle —
     # this is a custody / fund-flow endpoint.
     _check_kyc_or_403(db, user)
@@ -281,8 +288,11 @@ def withdraw(
     user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     s = get_settings()
+    # Same risk-ack + KYC posture as the deposit-address gate above.
+    # require_risk_ack runs first because it's the cheapest check and
+    # surfaces a 412 the UI knows how to replay.
+    require_risk_ack(user)
     # Withdrawals always require KYC — this is a fund-flow endpoint.
-    # Same posture as the deposit-address gate.
     _check_kyc_or_403(db, user)
     if payload.amount_usdt < s.custody_min_withdraw_usdt:
         raise HTTPException(

@@ -168,6 +168,48 @@ def test_deposit_address_returns_address_when_enabled(client_with_db, monkeypatc
     assert r2.json()["address"] == body["address"]
 
 
+def test_deposit_address_412_when_risk_ack_v2_not_signed(client_with_db, monkeypatch, request):
+    """RISK_ACK_VERSION bumped to 2 when the custody section was added
+    to /legal/disclosures.html. Clients on v1 (or zero) MUST re-ack
+    before any /wallet/deposit-address call succeeds. Once the gate is
+    enforced (COMPLIANCE_RISK_ACK_REQUIRED=true), an unsigned caller
+    sees 412 — the UI catches it and replays POST /compliance/risk-ack
+    with the current version."""
+    cl, db = client_with_db
+    _enable_custody(monkeypatch, request, with_license=True)
+    monkeypatch.setenv("COMPLIANCE_RISK_ACK_REQUIRED", "true")
+    _register(cl, "needs-ack@example.com")
+    _kyc_approve(db, "needs-ack@example.com")
+    r = cl.post("/wallet/deposit-address", json={"chain": "trc20"})
+    assert r.status_code == 412
+    assert "risk acknowledgement" in r.json()["detail"]
+
+    # After ack — request succeeds.
+    current = cl.get("/compliance/risk-ack").json()["current_version"]
+    assert current >= 2  # custody-section bump
+    cl.post("/compliance/risk-ack", json={"version": current, "accepted": True})
+    r = cl.post("/wallet/deposit-address", json={"chain": "trc20"})
+    assert r.status_code == 200, r.text
+
+
+def test_withdraw_412_when_risk_ack_v2_not_signed(client_with_db, monkeypatch, request):
+    """Same gate as deposit-address — withdrawals also need v2 ack."""
+    cl, db = client_with_db
+    _enable_custody(monkeypatch, request, with_license=True)
+    monkeypatch.setenv("COMPLIANCE_RISK_ACK_REQUIRED", "true")
+    _register(cl, "wd-ack@example.com")
+    _kyc_approve(db, "wd-ack@example.com")
+    r = cl.post(
+        "/wallet/withdraw",
+        json={
+            "chain": "trc20",
+            "destination_address": "Tdest1234567890",
+            "amount_usdt": 100.0,
+        },
+    )
+    assert r.status_code == 412
+
+
 def test_deposit_address_per_chain_unique(client_with_db, monkeypatch, request):
     cl, db = client_with_db
     _enable_custody(monkeypatch, request)

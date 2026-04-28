@@ -23,6 +23,7 @@ from app.api import (
     routes_leads,
     routes_manager,
     routes_payments,
+    routes_payments_webhooks,
     routes_referral,
     routes_news,
     routes_signals,
@@ -71,6 +72,7 @@ def create_app() -> FastAPI:
     app.include_router(routes_admin.router, tags=["admin"])
     app.include_router(routes_kyc.router, tags=["kyc"])
     app.include_router(routes_payments.router, tags=["payments"])
+    app.include_router(routes_payments_webhooks.router, tags=["payments-custody"])
     app.include_router(routes_referral.router, tags=["referral"])
     app.include_router(routes_2fa.router, tags=["auth"])
     app.include_router(routes_compliance.router, tags=["compliance"])
