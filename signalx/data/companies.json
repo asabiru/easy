@@ -1,0 +1,82 @@
+[
+  {
+    "company": "Nvidia",
+    "ticker": "NVDA",
+    "exchange_symbol": "NVDAUSDT",
+    "keywords": ["Nvidia", "NVDA", "Jensen Huang", "Blackwell", "CUDA", "GeForce", "AI chips", "H100", "H200", "Hopper"],
+    "sector": "semiconductors",
+    "related_tickers": ["AMD", "SMCI", "AVGO", "TSM"]
+  },
+  {
+    "company": "Tesla",
+    "ticker": "TSLA",
+    "exchange_symbol": "TSLAUSDT",
+    "keywords": ["Tesla", "TSLA", "Elon Musk", "Model Y", "Model 3", "Cybertruck", "FSD", "Robotaxi", "Gigafactory"],
+    "sector": "automotive",
+    "related_tickers": ["RIVN", "LCID"]
+  },
+  {
+    "company": "Apple",
+    "ticker": "AAPL",
+    "exchange_symbol": "AAPLUSDT",
+    "keywords": ["Apple", "AAPL", "Tim Cook", "iPhone", "iPad", "Mac", "Vision Pro", "App Store", "Apple Intelligence"],
+    "sector": "consumer_electronics",
+    "related_tickers": ["MSFT", "GOOGL"]
+  },
+  {
+    "company": "Microsoft",
+    "ticker": "MSFT",
+    "exchange_symbol": "MSFTUSDT",
+    "keywords": ["Microsoft", "MSFT", "Satya Nadella", "Azure", "Windows", "Copilot", "Xbox", "OpenAI partnership"],
+    "sector": "software",
+    "related_tickers": ["GOOGL", "AMZN"]
+  },
+  {
+    "company": "Alphabet",
+    "ticker": "GOOGL",
+    "exchange_symbol": "GOOGLUSDT",
+    "keywords": ["Alphabet", "Google", "GOOGL", "GOOG", "Sundar Pichai", "YouTube", "Gemini", "Android", "Search ads"],
+    "sector": "internet",
+    "related_tickers": ["META", "MSFT"]
+  },
+  {
+    "company": "Amazon",
+    "ticker": "AMZN",
+    "exchange_symbol": "AMZNUSDT",
+    "keywords": ["Amazon", "AMZN", "Andy Jassy", "AWS", "Prime", "Bedrock", "Alexa"],
+    "sector": "ecommerce_cloud",
+    "related_tickers": ["MSFT", "GOOGL"]
+  },
+  {
+    "company": "Meta Platforms",
+    "ticker": "META",
+    "exchange_symbol": "METAUSDT",
+    "keywords": ["Meta", "META", "Mark Zuckerberg", "Facebook", "Instagram", "WhatsApp", "Reality Labs", "Llama"],
+    "sector": "social_media",
+    "related_tickers": ["GOOGL", "SNAP"]
+  },
+  {
+    "company": "AMD",
+    "ticker": "AMD",
+    "exchange_symbol": "AMDUSDT",
+    "keywords": ["AMD", "Advanced Micro Devices", "Lisa Su", "Ryzen", "EPYC", "Instinct MI300", "Radeon"],
+    "sector": "semiconductors",
+    "related_tickers": ["NVDA", "INTC"]
+  },
+  {
+    "company": "Netflix",
+    "ticker": "NFLX",
+    "exchange_symbol": "NFLXUSDT",
+    "keywords": ["Netflix", "NFLX", "Ted Sarandos", "Stranger Things", "subscriber growth", "ad tier"],
+    "sector": "streaming",
+    "related_tickers": ["DIS", "WBD"]
+  },
+  {
+    "company": "Coinbase",
+    "ticker": "COIN",
+    "exchange_symbol": "COINUSDT",
+    "keywords": ["Coinbase", "COIN", "Brian Armstrong", "Coinbase exchange", "Base L2"],
+    "sector": "crypto_exchange",
+    "related_tickers": ["HOOD", "MSTR"]
+  }
+]
