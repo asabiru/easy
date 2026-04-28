@@ -128,6 +128,38 @@ If risk engine emits `SKIP`/`WATCH` override, the bucket is overridden too.
 - Errors in collectors / exchange / Telegram are caught and logged — they do
   not break the pipeline.
 
+## CRM, Compliance & Security layers (added post-v0.1 round 1–2)
+
+| Layer            | Module                                | Responsibility                                                                |
+|------------------|---------------------------------------|-------------------------------------------------------------------------------|
+| Auth             | `app/auth/`                           | bcrypt+JWT issuance, role middleware, `require_role`/`get_current_user`       |
+| Auth-2FA         | `app/security/totp.py` + `routes_2fa` | TOTP enrolment & verification (mandatory for VIP/Auto-Pro live trading)       |
+| KYC              | `app/kyc/`                            | provider abstraction (Mock + Sumsub HMAC), `KycProfile`, `AmlEvent` audit log |
+| Compliance       | `app/compliance/risk_ack.py`          | risk-disclosure version gate (412 until accepted)                             |
+| Payments         | `app/payments/ton.py`                 | Wallet Pay invoice + idempotent HMAC webhook                                  |
+| CRM-Manager      | `routes_manager` + `LeadActivity`     | sales pipeline, kanban, activity timeline                                     |
+| CRM-Client       | `routes_client` + `routes_referral`   | self-serve subs, referral leaderboard                                         |
+| CRM-Admin        | `routes_admin`                        | revenue, signal-quality, compliance, referral metrics                         |
+| Anti-Fake        | `app/analysis/fake_risk.py` + `/signals/filter-stats` | per-tier visibility cap, transparency rail        |
+| Trading-Risk     | `app/autotrade/risk_guard.py`         | daily-loss kill switch, win-rate alert                                        |
+| Marketing/Growth | `routes_leads` + `LeadCapture`        | top-of-funnel email capture with utm + ref attribution                        |
+| Rate-limit       | `app/security/rate_limit.py`          | sliding-window per-IP guards on referral/test-keys                            |
+
+## State-mutating endpoint gates (in order)
+
+For any caller hitting `/autotrade/subscribe` or `/autotrade/{id}/go-live`:
+
+1. `Depends(get_current_user)` — every state-mutating endpoint authenticates
+   (CLAUDE.md Rule 3). No `_optional` variants on writes.
+2. `require_risk_ack(user)` — 412 unless user has accepted current
+   `RISK_ACK_VERSION` (admin/manager bypass).
+3. KYC (when `KYC_REQUIRED=true`) — 403 unless `KycProfile.status="approved"`
+   and no sanctions hit.
+4. 2FA (VIP / Auto-Pro only on go-live) — 403 unless `User.totp_enabled=True`.
+5. Global kill switch — 409 if `ENABLE_AUTOTRADE=false`.
+6. Subscription state guards — 409 if killed/paused/in paper window.
+7. Per-symbol & risk caps — risk-engine gates inside the executor.
+
 ## Roadmap (post-MVP)
 
 1. Real-time collectors (RSS scheduler, Telegram channel reader).
@@ -136,3 +168,7 @@ If risk engine emits `SKIP`/`WATCH` override, the bucket is overridden too.
 4. Optional autotrader module behind `enable_autotrade=true` with strict
    per-symbol limits and kill switch.
 5. Web UI for signal review, label-correctness feedback, and PnL dashboard.
+6. Sumsub live integration (Mock provider in CI; Sumsub adapter is HMAC-ready).
+7. TON Wallet Pay live merchant key (sandbox flow already wired).
+8. On-chain vault (Solana primary, TON secondary) per `docs/vault-spec.md`.
+9. White-label sub-advisor partnerships per `docs/white-label-spec.md`.

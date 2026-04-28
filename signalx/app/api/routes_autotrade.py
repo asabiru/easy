@@ -353,6 +353,60 @@ def status(
     }
 
 
+class PositionSizeIn(BaseModel):
+    equity: float = Field(..., gt=0)
+    entry_price: float = Field(..., gt=0)
+    stop_loss_price: float = Field(..., gt=0)
+    side: Literal["long", "short"]
+    risk_per_trade_pct: float = Field(default=1.0, gt=0, le=10)
+    max_position_pct: float | None = Field(default=None, gt=0, le=100)
+    use_daily_loss_cap: bool = True
+
+
+@router.post("/autotrade/{sub_id}/position-size")
+def position_size(
+    sub_id: int,
+    payload: PositionSizeIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Compute the recommended position size given a subscription's
+    risk caps and the caller's stop-loss intent.
+
+    Pure-math endpoint — does not place any order. Surfaces which cap
+    bound the size (risk budget vs notional cap vs remaining daily-loss
+    budget) so the trader can see the constraint live in the /app UI.
+    """
+    from app.autotrade.position_sizing import calc
+
+    sub = _own_or_admin(db, sub_id, user)
+    max_position_pct = payload.max_position_pct
+    if max_position_pct is None:
+        max_position_pct = sub.max_position_pct or 25.0
+
+    daily_remaining: float | None = None
+    if payload.use_daily_loss_cap:
+        cap_pct = sub.daily_loss_limit_pct or 5.0
+        cap_abs = payload.equity * cap_pct / 100
+        orders = (
+            db.query(AutoTradeOrder)
+            .filter(AutoTradeOrder.subscription_id == sub.id)
+            .all()
+        )
+        used = max(0.0, -daily_pnl(orders))
+        daily_remaining = max(0.0, cap_abs - used)
+
+    return calc(
+        equity=payload.equity,
+        entry_price=payload.entry_price,
+        stop_loss_price=payload.stop_loss_price,
+        side=payload.side,
+        risk_per_trade_pct=payload.risk_per_trade_pct,
+        max_position_pct=max_position_pct,
+        daily_loss_remaining=daily_remaining,
+    )
+
+
 def _get_sub(db: Session, sub_id: int) -> AutoTradeSubscription:
     sub = db.query(AutoTradeSubscription).filter(AutoTradeSubscription.id == sub_id).first()
     if sub is None:

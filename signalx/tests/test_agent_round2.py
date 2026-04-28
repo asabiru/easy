@@ -206,6 +206,113 @@ def test_lead_unsubscribe_does_not_leak(client_with_db):
     assert r.json() == {"ok": True}
 
 
+# ─────────────────────────── Position sizing ─────────────────────────── #
+
+def test_position_sizing_pure_math_units():
+    from app.autotrade.position_sizing import calc
+
+    # 10000 equity, 1% risk = $100 risk budget
+    # Long entry 100, stop 95 → distance 5 → qty = 100/5 = 20
+    r = calc(
+        equity=10000,
+        entry_price=100,
+        stop_loss_price=95,
+        side="long",
+        risk_per_trade_pct=1.0,
+        max_position_pct=100,  # don't bind on notional
+    )
+    assert abs(r["qty"] - 20.0) < 1e-6
+    assert r["binding_cap"] == "risk"
+    assert abs(r["risk_amount"] - 100.0) < 1e-6
+
+
+def test_position_sizing_max_position_binds():
+    from app.autotrade.position_sizing import calc
+    # 10000 equity, max_position_pct=10 → cap notional at $1000
+    # Long entry 100 → max qty by notional = 10
+    # 1% risk would have been 50 (5pt stop, 100 risk / 5 = 20)
+    r = calc(
+        equity=10000,
+        entry_price=100,
+        stop_loss_price=95,
+        side="long",
+        risk_per_trade_pct=2.0,  # would give qty 40 by risk alone
+        max_position_pct=10,
+    )
+    assert r["binding_cap"] == "max_position"
+    assert abs(r["qty"] - 10.0) < 1e-6
+
+
+def test_position_sizing_daily_loss_binds():
+    from app.autotrade.position_sizing import calc
+    # Only $25 of daily-loss budget remaining; 5pt stop → max qty 5
+    r = calc(
+        equity=10000,
+        entry_price=100,
+        stop_loss_price=95,
+        side="long",
+        risk_per_trade_pct=2.0,
+        max_position_pct=100,
+        daily_loss_remaining=25,
+    )
+    assert r["binding_cap"] == "daily_loss"
+    assert abs(r["qty"] - 5.0) < 1e-6
+
+
+def test_position_sizing_zero_when_daily_budget_exhausted():
+    from app.autotrade.position_sizing import calc
+    r = calc(
+        equity=10000, entry_price=100, stop_loss_price=95, side="long",
+        daily_loss_remaining=0,
+    )
+    assert r["qty"] == 0.0
+    assert r["binding_cap"] == "invalid"
+
+
+def test_position_sizing_rejects_wrong_stop_side():
+    from app.autotrade.position_sizing import calc
+    # Long but stop ABOVE entry → invalid
+    r = calc(
+        equity=10000, entry_price=100, stop_loss_price=105, side="long",
+    )
+    assert r["binding_cap"] == "invalid"
+    assert r["qty"] == 0
+
+
+def test_position_sizing_endpoint_e2e(client_with_db):
+    cl, _ = client_with_db
+    _register(cl, "psize@example.com")
+    r = cl.post(
+        "/autotrade/subscribe",
+        json={
+            "email": "psize@example.com",
+            "tier": "manual_plus",
+            "exchange_id": "bybit",
+            "api_key": "k" * 16,
+            "api_secret": "s" * 16,
+            "max_position_pct": 50,
+            "daily_loss_limit_pct": 5,
+        },
+    )
+    assert r.status_code == 200
+    sub_id = r.json()["subscription_id"]
+
+    r = cl.post(
+        f"/autotrade/{sub_id}/position-size",
+        json={
+            "equity": 10000,
+            "entry_price": 100,
+            "stop_loss_price": 95,
+            "side": "long",
+            "risk_per_trade_pct": 1.0,
+        },
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["qty"] > 0
+    assert body["binding_cap"] in {"risk", "max_position", "daily_loss"}
+
+
 # ─────────────────────────── 2FA gate on go-live ─────────────────────────── #
 
 def test_go_live_requires_2fa_for_vip(client_with_db, monkeypatch, request):

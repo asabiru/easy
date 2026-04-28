@@ -113,6 +113,48 @@
         </div>
       </section>
 
+      <!-- Trading-Risk: position-sizing calculator. Pure-math endpoint
+           respects the subscription's max_position_pct and daily-loss
+           budget; the binding cap is surfaced so the trader sees which
+           constraint actually trimmed the size. -->
+      <section id="sizer-section" class="panel">
+        <h3>Position-size calculator</h3>
+        <p class="muted" style="margin:0 0 12px">
+          Pre-trade what-if. Feeds the subscription's risk caps + today's
+          remaining daily-loss budget into a single recommended quantity.
+        </p>
+        <form id="sizer-form" class="grid" style="grid-template-columns:repeat(2,minmax(0,1fr));gap:10px" onsubmit="return runSizer(event)">
+          <div>
+            <label class="muted" style="font-size:11px">Subscription</label>
+            <select id="sizer-sub" required></select>
+          </div>
+          <div>
+            <label class="muted" style="font-size:11px">Side</label>
+            <select id="sizer-side"><option value="long">Long</option><option value="short">Short</option></select>
+          </div>
+          <div>
+            <label class="muted" style="font-size:11px">Equity (USDT)</label>
+            <input id="sizer-equity" type="number" min="1" step="any" value="10000" required />
+          </div>
+          <div>
+            <label class="muted" style="font-size:11px">Risk per trade (%)</label>
+            <input id="sizer-risk" type="number" min="0.1" max="10" step="0.1" value="1" required />
+          </div>
+          <div>
+            <label class="muted" style="font-size:11px">Entry price</label>
+            <input id="sizer-entry" type="number" min="0.0001" step="any" required />
+          </div>
+          <div>
+            <label class="muted" style="font-size:11px">Stop-loss price</label>
+            <input id="sizer-stop" type="number" min="0.0001" step="any" required />
+          </div>
+          <div style="grid-column:1/-1">
+            <button type="submit" class="btn btn-primary">Calculate</button>
+          </div>
+        </form>
+        <div id="sizer-result" style="margin-top:12px"></div>
+      </section>
+
       <section id="trades-section" class="panel">
         <h3>Recent orders</h3>
         <table>
@@ -422,8 +464,53 @@
       } catch (e) { /* swallow */ }
     }
 
+    function loadSizerSubs() {
+      const sel = document.getElementById('sizer-sub');
+      if (!sel) return;
+      const cur = sel.value;
+      sel.innerHTML = cachedSubs.map(s =>
+        `<option value="${s.id}">#${s.id} · ${s.tier} · ${s.exchange_id}</option>`
+      ).join('') || '<option value="">No subscriptions</option>';
+      if (cur) sel.value = cur;
+    }
+    async function runSizer(e) {
+      e.preventDefault();
+      const subId = document.getElementById('sizer-sub').value;
+      if (!subId) { alert('Create a subscription first.'); return false; }
+      const payload = {
+        equity: parseFloat(document.getElementById('sizer-equity').value),
+        entry_price: parseFloat(document.getElementById('sizer-entry').value),
+        stop_loss_price: parseFloat(document.getElementById('sizer-stop').value),
+        side: document.getElementById('sizer-side').value,
+        risk_per_trade_pct: parseFloat(document.getElementById('sizer-risk').value),
+      };
+      try {
+        const r = await SX.api(`/autotrade/${subId}/position-size`, {
+          method: 'POST',
+          body: JSON.stringify(payload),
+          headers: {'Content-Type': 'application/json'},
+        });
+        const out = document.getElementById('sizer-result');
+        const capColors = {risk: 'var(--accent)', max_position: 'var(--warn)', daily_loss: 'var(--danger)', invalid: 'var(--danger)'};
+        out.innerHTML = `
+          <div class="kpi-grid" style="grid-template-columns:repeat(4,minmax(0,1fr))">
+            <div class="kpi"><div class="label">Quantity</div><div class="value mono">${r.qty}</div></div>
+            <div class="kpi"><div class="label">Notional</div><div class="value">${SX.fmtMoney(r.notional)}</div></div>
+            <div class="kpi"><div class="label">Risk amount</div><div class="value">${SX.fmtMoney(r.risk_amount)}</div></div>
+            <div class="kpi"><div class="label">Stop distance</div><div class="value">${r.stop_distance_pct}%</div></div>
+          </div>
+          <p class="muted" style="margin-top:10px">
+            <span class="pill" style="background:${capColors[r.binding_cap] || 'var(--surface-2)'}">Binding cap: ${r.binding_cap}</span>
+            ${r.notes}
+          </p>`;
+      } catch (e) { alert(e.message || 'Calculation failed'); }
+      return false;
+    }
+    window.runSizer = runSizer;
+
     async function refresh() {
       await loadSubs();
+      loadSizerSubs();
       await loadOrders();
       await loadKyc();
       await loadSignals();
