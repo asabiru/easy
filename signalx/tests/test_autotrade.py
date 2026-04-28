@@ -538,3 +538,65 @@ def test_go_live_refuses_killed_or_paused_subscriptions(client_with_db, monkeypa
     r = client.post(f"/autotrade/{paper_id}/go-live")
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "live"
+
+
+def test_paper_mode_refuses_paused_or_killed(client_with_db):
+    """Regression for BUG_pr-review-job-5f8d54f0bce5493e86a1b963275ea000_0001.
+
+    /paper-mode must NOT silently re-enable order flow on a paused/killed
+    sub — those must go through /resume. The executor dispatches to
+    status in (paper, live), so flipping a paused sub to paper would
+    bypass the daily-loss-pause guardrail (G4)."""
+    from datetime import datetime
+    from app.database.models import AutoTradeSubscription, User
+    from app.auth.security import hash_password
+
+    client, db = client_with_db
+    db.add(User(email="pm@example.com", password_hash=hash_password("p"),
+                role="client", is_active=True))
+    db.commit()
+    user = db.query(User).filter(User.email == "pm@example.com").first()
+    client.post("/auth/login", json={"email": "pm@example.com", "password": "p"})
+
+    def _make_sub(status: str) -> int:
+        sub = AutoTradeSubscription(
+            email="pm@example.com",
+            user_id=user.id,
+            tier="auto_lite",
+            exchange_id="bybit",
+            api_key_encrypted="x" * 16,
+            api_secret_encrypted="x" * 16,
+            status=status,
+            live_trading_enabled=False,
+            paper_until=datetime(2020, 1, 1),
+        )
+        db.add(sub)
+        db.commit()
+        db.refresh(sub)
+        return sub.id
+
+    paused_id = _make_sub("paused")
+    killed_id = _make_sub("killed")
+
+    r = client.post(f"/autotrade/{paused_id}/paper-mode")
+    assert r.status_code == 409
+    assert "/resume" in r.json()["detail"]
+
+    r = client.post(f"/autotrade/{killed_id}/paper-mode")
+    assert r.status_code == 409
+    assert "/resume" in r.json()["detail"]
+
+    # DB state unchanged
+    db.expire_all()
+    assert db.query(AutoTradeSubscription).filter(
+        AutoTradeSubscription.id == paused_id
+    ).first().status == "paused"
+    assert db.query(AutoTradeSubscription).filter(
+        AutoTradeSubscription.id == killed_id
+    ).first().status == "killed"
+
+    # A live sub still successfully drops to paper
+    live_id = _make_sub("live")
+    r = client.post(f"/autotrade/{live_id}/paper-mode")
+    assert r.status_code == 200
+    assert r.json()["status"] == "paper"

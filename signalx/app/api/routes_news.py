@@ -312,8 +312,16 @@ def ingest_news_x(
     db: Session = Depends(get_db),
     x_signature: str | None = Header(default=None, alias="X-Signature"),
 ) -> dict[str, Any]:
-    """X (Twitter) webhook. Optionally protected by `X-Signature` shared
-    secret if `X_WEBHOOK_SECRET` is configured."""
+    """X (Twitter) webhook. Protected by `X-Signature` against
+    `NEWS_INGEST_SECRET` (shared with all other ingest endpoints) and
+    optionally also `X_WEBHOOK_SECRET` for legacy webhook senders.
+
+    Both checks must pass when both secrets are set — the X handler
+    fires the same autotrade dispatcher as every other ingest path,
+    so it MUST honor NEWS_INGEST_SECRET. (BUG_0002 in
+    pr-review-job-5f8d54f0bce5493e86a1b963275ea000.)
+    """
+    _verify_news_ingest_secret(x_signature)
     s = get_settings()
     if s.x_webhook_secret and not hmac.compare_digest(x_signature or "", s.x_webhook_secret):
         raise HTTPException(status_code=401, detail="invalid X-Signature")

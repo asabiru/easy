@@ -101,3 +101,24 @@ def test_news_ingest_rss_requires_signature_when_secret_set(monkeypatch, client)
     assert r.status_code == 401
     r = client.post("/news/ingest/rss", json=payload, headers={"X-Signature": "topsecret"})
     assert r.status_code != 401
+
+
+def test_news_ingest_x_requires_news_ingest_secret(monkeypatch, client):
+    """Regression for BUG_pr-review-job-5f8d54f0bce5493e86a1b963275ea000_0002.
+
+    /news/ingest/x must honor NEWS_INGEST_SECRET like every other ingest
+    endpoint — it dispatches the same autotrade orders."""
+    monkeypatch.setenv("NEWS_INGEST_SECRET", "shared-key")
+    from app.config.settings import get_settings
+    get_settings.cache_clear()
+
+    payload = {"handle": "DeItaone", "raw_text": "Acme reports earnings beat"}
+    # No header → 401 (news_ingest_secret enforced)
+    r = client.post("/news/ingest/x", json=payload)
+    assert r.status_code == 401
+    # Wrong → 401
+    r = client.post("/news/ingest/x", json=payload, headers={"X-Signature": "wrong"})
+    assert r.status_code == 401
+    # Correct → not 401 (may 200 / may downstream error, just not auth)
+    r = client.post("/news/ingest/x", json=payload, headers={"X-Signature": "shared-key"})
+    assert r.status_code != 401

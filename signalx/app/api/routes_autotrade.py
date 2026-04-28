@@ -161,6 +161,17 @@ def paper_mode(
     user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     sub = _own_or_admin(db, sub_id, user)
+    # Same rationale as /go-live: paused/killed subs must go through
+    # /resume so the daily-loss-pause + admin-kill workflows can't be
+    # bypassed by switching directly to paper. The executor dispatches
+    # to status in (paper, live), so flipping a paused sub to paper
+    # here would silently re-enable order flow. (BUG_0001 in
+    # pr-review-job-5f8d54f0bce5493e86a1b963275ea000.)
+    if sub.status in ("paused", "killed"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"subscription is {sub.status}; call /resume first",
+        )
     sub.status = "paper"
     sub.live_trading_enabled = False
     db.add(sub)
