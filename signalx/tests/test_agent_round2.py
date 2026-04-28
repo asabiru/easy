@@ -280,6 +280,10 @@ def test_position_sizing_rejects_wrong_stop_side():
 
 
 def test_position_sizing_endpoint_e2e(client_with_db):
+    """End-to-end: /subscribe stores subscription with decimal-fraction
+    caps (0.50 = 50%, 0.05 = 5%) — same convention as risk_guard.py — and
+    the position-size endpoint converts to whole-pct units before calling
+    calc()."""
     cl, _ = client_with_db
     _register(cl, "psize@example.com")
     r = cl.post(
@@ -290,8 +294,8 @@ def test_position_sizing_endpoint_e2e(client_with_db):
             "exchange_id": "bybit",
             "api_key": "k" * 16,
             "api_secret": "s" * 16,
-            "max_position_pct": 50,
-            "daily_loss_limit_pct": 5,
+            "max_position_pct": 0.50,
+            "daily_loss_limit_pct": 0.05,
         },
     )
     assert r.status_code == 200
@@ -311,6 +315,103 @@ def test_position_sizing_endpoint_e2e(client_with_db):
     body = r.json()
     assert body["qty"] > 0
     assert body["binding_cap"] in {"risk", "max_position", "daily_loss"}
+
+
+def test_position_sizing_uses_subscription_decimal_caps(client_with_db):
+    """Regression for the unit-mismatch bug: when the user does not pass
+    max_position_pct in the request body, the subscription's stored
+    decimal (0.10 = 10%) is used as a whole-pct (10) so the cap binds at
+    the documented 10% of equity rather than 0.1% (1/100 of expected)."""
+    cl, _ = client_with_db
+    _register(cl, "decimal-cap@example.com")
+    r = cl.post(
+        "/autotrade/subscribe",
+        json={
+            "email": "decimal-cap@example.com",
+            "tier": "manual_plus",
+            "exchange_id": "bybit",
+            "api_key": "k" * 16,
+            "api_secret": "s" * 16,
+            # 10% of equity (decimal fraction; the same convention
+            # risk_guard.py uses). Endpoint must scale this back to
+            # whole-pct (10) before passing into calc().
+            "max_position_pct": 0.10,
+            "daily_loss_limit_pct": 0.20,  # large enough to not bind
+        },
+    )
+    assert r.status_code == 200
+    sub_id = r.json()["subscription_id"]
+
+    # 1% risk on 10000 equity / 5pt stop → risk-only qty = 20.
+    # 10% notional cap on 10000 equity → notional cap $1000 / entry 100
+    # → max qty 10. Notional cap should bind.
+    r = cl.post(
+        f"/autotrade/{sub_id}/position-size",
+        json={
+            "equity": 10000,
+            "entry_price": 100,
+            "stop_loss_price": 95,
+            "side": "long",
+            "risk_per_trade_pct": 1.0,
+        },
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["binding_cap"] == "max_position"
+    assert abs(body["qty"] - 10.0) < 1e-6
+
+
+# ─────────────── KYC gate checks subscription owner, not caller ─────────────── #
+
+def test_go_live_kyc_gate_checks_subscription_owner(client_with_db, monkeypatch, request):
+    """Regression: when an admin calls /go-live on behalf of a client whose
+    KYC has not been approved, the request must be rejected. Previously
+    the gate looked up the caller (the admin) and bypassed via role check."""
+    from app.config.settings import get_settings
+    from app.database.models import User as UserModel
+
+    cl, db = client_with_db
+    monkeypatch.setenv("ENABLE_AUTOTRADE", "true")
+    monkeypatch.setenv("KYC_REQUIRED", "true")
+    get_settings.cache_clear()  # type: ignore[attr-defined]
+    request.addfinalizer(lambda: get_settings.cache_clear())  # type: ignore[attr-defined]
+
+    # 1) Register a non-admin client with no KYC profile and create a sub.
+    _register(cl, "client@example.com")
+    r = cl.post(
+        "/autotrade/subscribe",
+        json={
+            "email": "client@example.com",
+            "tier": "manual_plus",
+            "exchange_id": "bybit",
+            "api_key": "k" * 16,
+            "api_secret": "s" * 16,
+        },
+    )
+    assert r.status_code == 200, r.text
+    sub_id = r.json()["subscription_id"]
+    cl.headers.pop("Authorization", None)
+    cl.cookies.clear()
+
+    # 2) Promote a second user to admin and call /go-live as them.
+    cl.post("/auth/register", json={"email": "admin@example.com", "password": "pw1234567"})
+    admin = db.query(UserModel).filter(UserModel.email == "admin@example.com").first()
+    admin.role = "admin"
+    db.add(admin)
+    db.commit()
+    cl.post("/auth/login", json={"email": "admin@example.com", "password": "pw1234567"})
+
+    # Force paper_until into the past so the only remaining gate is KYC.
+    from datetime import datetime, timedelta
+    from app.database.models import AutoTradeSubscription
+    sub = db.query(AutoTradeSubscription).filter(AutoTradeSubscription.id == sub_id).first()
+    sub.paper_until = datetime.utcnow() - timedelta(days=1)
+    db.add(sub)
+    db.commit()
+
+    r = cl.post(f"/autotrade/{sub_id}/go-live")
+    assert r.status_code == 403
+    assert "KYC" in r.json()["detail"]
 
 
 # ─────────────────────────── 2FA gate on go-live ─────────────────────────── #

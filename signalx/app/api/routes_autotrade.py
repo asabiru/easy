@@ -130,24 +130,38 @@ def go_live(
 ) -> dict[str, Any]:
     s = get_settings()
     sub = _own_or_admin(db, sub_id, user)
-    # KYC gate: live trading dispatches real orders against a real
-    # exchange account, so the subscription owner MUST be KYC-approved.
+    # KYC gate: live trading dispatches real orders against the
+    # subscription **owner's** exchange account, so the owner MUST be
+    # KYC-approved — even when an admin is the one calling /go-live on
+    # their behalf via the compliance dashboard. Earlier code looked up
+    # `user.id` (the caller), which let an admin go-live a subscription
+    # whose owner had failed KYC or had a sanctions hit.
+    # (BUG_0003 in pr-review-job-ee8860e4a19c462b9a8c10edb7a3ec14.)
+    #
     # When `kyc_required=False` (early MVP / mock provider), this is a
-    # no-op so existing flows still work. Admin role bypasses (admins
-    # acting on behalf of users go through the compliance dashboard).
-    if s.kyc_required and user.role != "admin":
+    # no-op so existing flows still work. We always check the owner if
+    # `sub.user_id` is set; legacy un-owned subs (only `email` set) skip
+    # the gate the same way they did before — those are exception paths
+    # only created in tests.
+    if s.kyc_required and sub.user_id is not None:
         from app.database.models import KycProfile  # local: avoid circular
         profile = (
-            db.query(KycProfile).filter(KycProfile.user_id == user.id).first()
+            db.query(KycProfile)
+            .filter(KycProfile.user_id == sub.user_id)
+            .first()
         )
         if profile is None or profile.status != "approved":
             raise HTTPException(
                 status_code=403,
-                detail="KYC verification required before live trading. POST /kyc/start.",
+                detail=(
+                    "KYC verification required for the subscription owner "
+                    "before live trading. POST /kyc/start."
+                ),
             )
         if profile.sanctions_hit:
             raise HTTPException(
-                status_code=403, detail="account blocked by AML screening",
+                status_code=403,
+                detail="subscription owner is blocked by AML screening",
             )
     if not s.enable_autotrade:
         raise HTTPException(
@@ -380,14 +394,29 @@ def position_size(
     from app.autotrade.position_sizing import calc
 
     sub = _own_or_admin(db, sub_id, user)
-    max_position_pct = payload.max_position_pct
-    if max_position_pct is None:
-        max_position_pct = sub.max_position_pct or 25.0
+    # Unit-conversion gotcha: AutoTradeSubscription stores the caps as
+    # **decimal fractions** (0.10 = 10%) — that's what risk_guard.py
+    # expects (notional_cap = free_balance * max_position_pct, no /100).
+    # `position_sizing.calc()` takes whole-number percentages (10 = 10%)
+    # because that matches how the calculator UI presents them. Convert
+    # here. Also follow the repo's hard "is not None" rule (security
+    # SKILL.md + reviewer SKILL.md) so an explicit 0 doesn't silently
+    # fall back to the default.
+    if payload.max_position_pct is not None:
+        max_position_pct = payload.max_position_pct
+    elif sub.max_position_pct is not None:
+        max_position_pct = sub.max_position_pct * 100  # decimal → whole pct
+    else:
+        max_position_pct = 25.0
 
     daily_remaining: float | None = None
     if payload.use_daily_loss_cap:
-        cap_pct = sub.daily_loss_limit_pct or 5.0
-        cap_abs = payload.equity * cap_pct / 100
+        cap_pct = (
+            sub.daily_loss_limit_pct
+            if sub.daily_loss_limit_pct is not None
+            else 0.05
+        )
+        cap_abs = payload.equity * cap_pct  # cap_pct is already a fraction
         orders = (
             db.query(AutoTradeOrder)
             .filter(AutoTradeOrder.subscription_id == sub.id)
