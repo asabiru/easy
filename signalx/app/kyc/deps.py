@@ -29,15 +29,25 @@ from app.database.session import get_db
 log = logging.getLogger(__name__)
 
 
-def require_kyc():
+def require_kyc(*, enforce: bool = False):
     """Dependency factory. Returns a function that asserts caller has
-    `kyc_status == 'approved'` (or is admin)."""
+    `kyc_status == 'approved'` (or is admin).
+
+    Args:
+        enforce: When True, the check runs regardless of the
+            `kyc_required` setting. Use this on endpoints that must
+            never accept un-verified users — e.g. payment / deposit
+            endpoints, where global KYC gating is non-negotiable
+            (regulatory requirement). Defaults to False so the gate
+            can be relaxed globally during the early MVP / mock
+            provider phase.
+    """
 
     def _checker(
         user: User = Depends(get_current_user),
         db: Session = Depends(get_db),
     ) -> User:
-        if not get_settings().kyc_required:
+        if not enforce and not get_settings().kyc_required:
             return user
         if user.role == "admin":
             return user

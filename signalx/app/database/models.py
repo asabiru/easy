@@ -162,6 +162,31 @@ class KycProfile(Base):
     verdict_at = Column(DateTime, nullable=True)
 
 
+class Payment(Base):
+    """User payment record. Currently TON / Wallet Pay only.
+
+    `purpose` ∈ {subscription, vault_deposit, other}. Subscription
+    payments fund the SaaS billing; vault_deposit credits flow through
+    the on-chain vault contract (added in phase-2). All payments
+    require the user's KYC profile to be `approved` before invoice
+    creation (enforced at endpoint level via `require_kyc()`).
+
+    `status` lifecycle: pending → paid | failed.
+    """
+
+    __tablename__ = "payments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    provider = Column(String(32), nullable=False, default="ton_wallet_pay")
+    external_id = Column(String(64), nullable=False, unique=True, index=True)
+    amount_usdt = Column(Float, nullable=False)
+    purpose = Column(String(32), nullable=False, default="subscription")
+    status = Column(String(16), nullable=False, default="pending", index=True)
+    paid_at = Column(DateTime, nullable=True)
+
+
 class AmlEvent(Base):
     """Append-only AML / compliance audit-log.
 

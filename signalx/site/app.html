@@ -40,7 +40,14 @@
           <div class="kpi"><div class="label">Trades today</div><div class="value" id="kpi-trades">—</div></div>
           <div class="kpi"><div class="label">Active subs</div><div class="value" id="kpi-subs">—</div></div>
           <div class="kpi"><div class="label">Tier</div><div class="value" id="kpi-tier" style="font-size:18px">—</div></div>
+          <div class="kpi"><div class="label">KYC</div><div class="value" id="kpi-kyc" style="font-size:18px">—</div></div>
         </div>
+      </section>
+
+      <section id="kyc-section" class="panel" style="display:none">
+        <h3>Verification</h3>
+        <p class="muted" id="kyc-explainer" style="margin-bottom:12px"></p>
+        <button id="kyc-start-btn" class="btn btn-primary" onclick="startKyc()">Start verification</button>
       </section>
 
       <section id="subs-section" class="panel">
@@ -76,6 +83,44 @@
       if (u.role === 'admin') location.href = '/admin.html';
       else if (u.role === 'manager') location.href = '/manager.html';
     }
+
+    async function loadKyc() {
+      try {
+        const k = await SX.api('/kyc/status');
+        const kpi = document.getElementById('kpi-kyc');
+        const section = document.getElementById('kyc-section');
+        const explainer = document.getElementById('kyc-explainer');
+        const btn = document.getElementById('kyc-start-btn');
+        const colors = {approved: 'var(--accent)', rejected: 'var(--danger)', submitted: 'var(--warn)', pending_review: 'var(--warn)', unverified: 'var(--text-dim)'};
+        kpi.textContent = k.status;
+        kpi.style.color = colors[k.status] || 'var(--text-dim)';
+        if (k.status === 'unverified') {
+          section.style.display = 'block';
+          explainer.textContent = 'Identity verification is required before live trading and before depositing into the on-chain vault. Verification is provided by Sumsub and typically takes 2–5 minutes.';
+          btn.textContent = 'Start verification';
+          btn.disabled = false;
+        } else if (k.status === 'submitted' || k.status === 'pending_review') {
+          section.style.display = 'block';
+          explainer.textContent = `Verification ${k.status === 'submitted' ? 'submitted' : 'pending compliance review'}. We'll email you when the verdict is in.`;
+          btn.textContent = 'Verification in progress';
+          btn.disabled = true;
+        } else if (k.status === 'rejected') {
+          section.style.display = 'block';
+          explainer.textContent = 'Verification was rejected. Reasons: ' + ((k.reject_reasons || []).join(', ') || 'undisclosed') + '. Contact support if you believe this is in error.';
+          btn.textContent = 'Resubmit verification';
+          btn.disabled = false;
+        } else {
+          section.style.display = 'none';
+        }
+      } catch (e) { console.warn('kyc/status', e); }
+    }
+
+    async function startKyc() {
+      const r = await SX.api('/kyc/start', {method: 'POST'});
+      alert('Verification started. Provider: ' + r.provider + '\\nStatus: ' + r.status + '\\nIn production this would open the Sumsub WebSDK widget. The mock provider auto-submits for testing.');
+      loadKyc();
+    }
+    window.startKyc = startKyc;
 
     async function loadSubs() {
       const subs = await SX.api('/client/me/subscriptions');
@@ -150,7 +195,7 @@
     async function resumeSub(id) { await SX.api(`/autotrade/${id}/resume`, {method:'POST'}); refresh(); }
     window.paperMode = paperMode; window.killSub = killSub; window.resumeSub = resumeSub;
 
-    async function refresh() { await loadSubs(); await loadOrders(); }
+    async function refresh() { await loadSubs(); await loadOrders(); await loadKyc(); }
 
     (async () => {
       await loadMe();

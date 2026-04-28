@@ -18,6 +18,7 @@
         <a data-tab="signals">Signals</a>
         <a data-tab="orders">Orders</a>
         <a data-tab="audit">Audit</a>
+        <a data-tab="compliance">Compliance</a>
         <a href="/manager.html">↗ Manager view</a>
         <a href="/app.html">↗ Client view</a>
       </nav>
@@ -86,6 +87,23 @@
           </table>
         </div>
       </section>
+
+      <section data-tab="compliance" hidden>
+        <div class="panel">
+          <h3>KYC review queue <span class="muted" style="font-size:11px">(submitted + pending review)</span></h3>
+          <table>
+            <thead><tr><th>User</th><th>Email</th><th>Applicant</th><th>Status</th><th>Flags</th><th>Country</th><th>Reasons</th><th>Updated</th><th>Actions</th></tr></thead>
+            <tbody id="kyc-queue-tbody"></tbody>
+          </table>
+        </div>
+        <div class="panel" style="margin-top:16px">
+          <h3>AML audit log <span class="muted" style="font-size:11px">(append-only — FATF Recommendation 11)</span></h3>
+          <table>
+            <thead><tr><th>ID</th><th>When</th><th>User</th><th>Actor</th><th>Kind</th><th>Detail</th></tr></thead>
+            <tbody id="aml-events-tbody"></tbody>
+          </table>
+        </div>
+      </section>
     </main>
   </div>
 
@@ -106,7 +124,8 @@
       document.querySelectorAll('section[data-tab]').forEach(s => s.hidden = s.dataset.tab !== name);
       document.getElementById('page-title').textContent = ({
         system: 'System overview', users: 'Users', subs: 'Subscriptions',
-        signals: 'Signals', orders: 'Orders', audit: 'Audit log'
+        signals: 'Signals', orders: 'Orders', audit: 'Audit log',
+        compliance: 'Compliance / KYC'
       })[name];
       loadCurrentTab();
     }
@@ -218,8 +237,49 @@
     async function forceKill(id) { if (!confirm('Force-kill subscription #' + id + '?')) return; await SX.api(`/admin/subscriptions/${id}/force-kill`, {method:'POST'}); loadSubs(); }
     window.setRole = setRole; window.disableUser = disableUser; window.forceKill = forceKill;
 
+    async function loadCompliance() {
+      const [queue, events] = await Promise.all([
+        SX.api('/admin/kyc/queue'),
+        SX.api('/admin/kyc/events?limit=100'),
+      ]);
+      document.getElementById('kyc-queue-tbody').innerHTML = queue.map(p => `
+        <tr>
+          <td class="mono">#${p.user_id}</td>
+          <td>${p.email || ''}</td>
+          <td class="mono" style="max-width:140px;overflow:hidden;text-overflow:ellipsis">${p.applicant_id || '—'}</td>
+          <td>${SX.badge(p.status === 'submitted' ? 'paper' : 'paused', p.status)}</td>
+          <td>${[p.sanctions_hit ? '<span class="badge badge-killed">SANCTIONS</span>' : '', p.pep_hit ? '<span class="badge badge-paused">PEP</span>' : '', p.sof_required ? '<span class="badge badge-new">SoF</span>' : ''].filter(Boolean).join(' ') || '—'}</td>
+          <td class="mono">${p.country || '—'}</td>
+          <td class="muted" style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${(p.reject_reasons || []).join(', ') || '—'}</td>
+          <td class="muted">${SX.fmtDt(p.updated_at)}</td>
+          <td>
+            <button onclick="kycOverride(${p.user_id}, 'approved')">Approve</button>
+            <button class="btn-danger" onclick="kycOverride(${p.user_id}, 'rejected')">Reject</button>
+          </td>
+        </tr>
+      `).join('') || '<tr><td colspan="9" class="muted" style="text-align:center">No KYC profiles in review.</td></tr>';
+      document.getElementById('aml-events-tbody').innerHTML = events.map(e => `
+        <tr>
+          <td class="mono">#${e.id}</td>
+          <td class="muted">${SX.fmtDt(e.created_at)}</td>
+          <td class="mono">${e.user_id ? '#' + e.user_id : '—'}</td>
+          <td class="mono">${e.actor_id ? '#' + e.actor_id : '—'}</td>
+          <td><span class="badge badge-new">${e.kind}</span></td>
+          <td class="muted mono" style="max-width:420px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${e.detail || ''}</td>
+        </tr>
+      `).join('');
+    }
+
+    async function kycOverride(userId, status) {
+      const reason = prompt(`Reason for ${status} (visible in audit log)?`);
+      if (!reason || reason.length < 4) return;
+      await SX.api(`/admin/kyc/${userId}/override`, {method:'POST', body: JSON.stringify({new_status: status, reason})});
+      loadCompliance();
+    }
+    window.kycOverride = kycOverride;
+
     function loadCurrentTab() {
-      ({system: loadSystem, users: loadUsers, subs: loadSubs, signals: loadSignals, orders: loadOrders, audit: loadAudit})[currentTab]();
+      ({system: loadSystem, users: loadUsers, subs: loadSubs, signals: loadSignals, orders: loadOrders, audit: loadAudit, compliance: loadCompliance})[currentTab]();
     }
 
     document.querySelectorAll('#tabs-nav a[data-tab]').forEach(a => {

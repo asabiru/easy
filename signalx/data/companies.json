@@ -3,160 +3,508 @@
     "company": "Nvidia",
     "ticker": "NVDA",
     "exchange_symbol": "NVDAUSDT",
-    "keywords": ["Nvidia", "NVDA", "Jensen Huang", "Blackwell", "CUDA", "GeForce", "AI chips", "H100", "H200", "Hopper"],
+    "keywords": [
+      "Nvidia",
+      "NVDA",
+      "Jensen Huang",
+      "Blackwell",
+      "CUDA",
+      "GeForce",
+      "AI chips",
+      "H100",
+      "H200",
+      "Hopper"
+    ],
     "sector": "semiconductors",
-    "related_tickers": ["AMD", "SMCI", "AVGO", "TSM"]
+    "related_tickers": [
+      "AMD",
+      "SMCI",
+      "AVGO",
+      "TSM"
+    ]
   },
   {
     "company": "Tesla",
     "ticker": "TSLA",
     "exchange_symbol": "TSLAUSDT",
-    "keywords": ["Tesla", "TSLA", "Elon Musk", "Model Y", "Model 3", "Cybertruck", "FSD", "Robotaxi", "Gigafactory"],
+    "keywords": [
+      "Tesla",
+      "TSLA",
+      "Elon Musk",
+      "Model Y",
+      "Model 3",
+      "Cybertruck",
+      "FSD",
+      "Robotaxi",
+      "Gigafactory"
+    ],
     "sector": "automotive",
-    "related_tickers": ["RIVN", "LCID"]
+    "related_tickers": [
+      "RIVN",
+      "LCID"
+    ]
   },
   {
     "company": "Apple",
     "ticker": "AAPL",
     "exchange_symbol": "AAPLUSDT",
-    "keywords": ["Apple", "AAPL", "Tim Cook", "iPhone", "iPad", "Mac", "Vision Pro", "App Store", "Apple Intelligence"],
+    "keywords": [
+      "Apple",
+      "AAPL",
+      "Tim Cook",
+      "iPhone",
+      "iPad",
+      "Mac",
+      "Vision Pro",
+      "App Store",
+      "Apple Intelligence"
+    ],
     "sector": "consumer_electronics",
-    "related_tickers": ["MSFT", "GOOGL"]
+    "related_tickers": [
+      "MSFT",
+      "GOOGL"
+    ]
   },
   {
     "company": "Microsoft",
     "ticker": "MSFT",
     "exchange_symbol": "MSFTUSDT",
-    "keywords": ["Microsoft", "MSFT", "Satya Nadella", "Azure", "Windows", "Copilot", "Xbox", "OpenAI partnership"],
+    "keywords": [
+      "Microsoft",
+      "MSFT",
+      "Satya Nadella",
+      "Azure",
+      "Windows",
+      "Copilot",
+      "Xbox",
+      "OpenAI partnership"
+    ],
     "sector": "software",
-    "related_tickers": ["GOOGL", "AMZN"]
+    "related_tickers": [
+      "GOOGL",
+      "AMZN"
+    ]
   },
   {
     "company": "Alphabet",
     "ticker": "GOOGL",
     "exchange_symbol": "GOOGLUSDT",
-    "keywords": ["Alphabet", "Google", "GOOGL", "GOOG", "Sundar Pichai", "YouTube", "Gemini", "Android", "Search ads"],
+    "keywords": [
+      "Alphabet",
+      "Google",
+      "GOOGL",
+      "GOOG",
+      "Sundar Pichai",
+      "YouTube",
+      "Gemini",
+      "Android",
+      "Search ads"
+    ],
     "sector": "internet",
-    "related_tickers": ["META", "MSFT"]
+    "related_tickers": [
+      "META",
+      "MSFT"
+    ]
   },
   {
     "company": "Amazon",
     "ticker": "AMZN",
     "exchange_symbol": "AMZNUSDT",
-    "keywords": ["Amazon", "AMZN", "Andy Jassy", "AWS", "Prime", "Bedrock", "Alexa"],
+    "keywords": [
+      "Amazon",
+      "AMZN",
+      "Andy Jassy",
+      "AWS",
+      "Prime",
+      "Bedrock",
+      "Alexa"
+    ],
     "sector": "ecommerce_cloud",
-    "related_tickers": ["MSFT", "GOOGL"]
+    "related_tickers": [
+      "MSFT",
+      "GOOGL"
+    ]
   },
   {
     "company": "Meta Platforms",
     "ticker": "META",
     "exchange_symbol": "METAUSDT",
-    "keywords": ["Meta", "META", "Mark Zuckerberg", "Facebook", "Instagram", "WhatsApp", "Reality Labs", "Llama"],
+    "keywords": [
+      "Meta",
+      "META",
+      "Mark Zuckerberg",
+      "Facebook",
+      "Instagram",
+      "WhatsApp",
+      "Reality Labs",
+      "Llama"
+    ],
     "sector": "social_media",
-    "related_tickers": ["GOOGL", "SNAP"]
+    "related_tickers": [
+      "GOOGL",
+      "SNAP"
+    ]
   },
   {
     "company": "AMD",
     "ticker": "AMD",
     "exchange_symbol": "AMDUSDT",
-    "keywords": ["AMD", "Advanced Micro Devices", "Lisa Su", "Ryzen", "EPYC", "Instinct MI300", "Radeon"],
+    "keywords": [
+      "AMD",
+      "Advanced Micro Devices",
+      "Lisa Su",
+      "Ryzen",
+      "EPYC",
+      "Instinct MI300",
+      "Radeon"
+    ],
     "sector": "semiconductors",
-    "related_tickers": ["NVDA", "INTC"]
+    "related_tickers": [
+      "NVDA",
+      "INTC"
+    ]
   },
   {
     "company": "Netflix",
     "ticker": "NFLX",
     "exchange_symbol": "NFLXUSDT",
-    "keywords": ["Netflix", "NFLX", "Ted Sarandos", "Stranger Things", "subscriber growth", "ad tier"],
+    "keywords": [
+      "Netflix",
+      "NFLX",
+      "Ted Sarandos",
+      "Stranger Things",
+      "subscriber growth",
+      "ad tier"
+    ],
     "sector": "streaming",
-    "related_tickers": ["DIS", "WBD"]
+    "related_tickers": [
+      "DIS",
+      "WBD"
+    ]
   },
   {
     "company": "Coinbase",
     "ticker": "COIN",
     "exchange_symbol": "COINUSDT",
-    "keywords": ["Coinbase", "COIN", "Brian Armstrong", "Coinbase exchange", "Base L2"],
+    "keywords": [
+      "Coinbase",
+      "COIN",
+      "Brian Armstrong",
+      "Coinbase exchange",
+      "Base L2"
+    ],
     "sector": "crypto_exchange",
-    "related_tickers": ["HOOD", "MSTR"]
+    "related_tickers": [
+      "HOOD",
+      "MSTR"
+    ]
   },
   {
     "company": "Exxon Mobil",
     "ticker": "XOM",
     "exchange_symbol": "XOMUSDT",
-    "keywords": ["Exxon", "ExxonMobil", "Exxon Mobil", "XOM", "Darren Woods", "Permian", "Pioneer Natural Resources", "Guyana", "LNG"],
+    "keywords": [
+      "Exxon",
+      "ExxonMobil",
+      "Exxon Mobil",
+      "XOM",
+      "Darren Woods",
+      "Permian",
+      "Pioneer Natural Resources",
+      "Guyana",
+      "LNG"
+    ],
     "sector": "energy_oil_gas",
-    "related_tickers": ["CVX", "COP", "BP", "SHEL"]
+    "related_tickers": [
+      "CVX",
+      "COP",
+      "BP",
+      "SHEL"
+    ]
   },
   {
     "company": "Chevron",
     "ticker": "CVX",
     "exchange_symbol": "CVXUSDT",
-    "keywords": ["Chevron", "CVX", "Mike Wirth", "Hess acquisition", "Tengiz", "Wheatstone"],
+    "keywords": [
+      "Chevron",
+      "CVX",
+      "Mike Wirth",
+      "Hess acquisition",
+      "Tengiz",
+      "Wheatstone"
+    ],
     "sector": "energy_oil_gas",
-    "related_tickers": ["XOM", "COP", "BP", "SHEL"]
+    "related_tickers": [
+      "XOM",
+      "COP",
+      "BP",
+      "SHEL"
+    ]
   },
   {
     "company": "ConocoPhillips",
     "ticker": "COP",
     "exchange_symbol": "COPUSDT",
-    "keywords": ["ConocoPhillips", "Conoco Phillips", "COP", "Ryan Lance", "Marathon Oil", "Eagle Ford", "Bakken"],
+    "keywords": [
+      "ConocoPhillips",
+      "Conoco Phillips",
+      "COP",
+      "Ryan Lance",
+      "Marathon Oil",
+      "Eagle Ford",
+      "Bakken"
+    ],
     "sector": "energy_oil_gas",
-    "related_tickers": ["XOM", "CVX", "OXY"]
+    "related_tickers": [
+      "XOM",
+      "CVX",
+      "OXY"
+    ]
   },
   {
     "company": "Occidental Petroleum",
     "ticker": "OXY",
     "exchange_symbol": "OXYUSDT",
-    "keywords": ["Occidental", "Occidental Petroleum", "OXY", "Vicki Hollub", "Anadarko", "CrownRock", "Berkshire Hathaway stake"],
+    "keywords": [
+      "Occidental",
+      "Occidental Petroleum",
+      "OXY",
+      "Vicki Hollub",
+      "Anadarko",
+      "CrownRock",
+      "Berkshire Hathaway stake"
+    ],
     "sector": "energy_oil_gas",
-    "related_tickers": ["XOM", "CVX", "COP"]
+    "related_tickers": [
+      "XOM",
+      "CVX",
+      "COP"
+    ]
   },
   {
     "company": "Shell",
     "ticker": "SHEL",
     "exchange_symbol": "SHELUSDT",
-    "keywords": ["Shell", "SHEL", "Royal Dutch Shell", "Wael Sawan", "BG Group", "Pearl GTL"],
+    "keywords": [
+      "Shell",
+      "SHEL",
+      "Royal Dutch Shell",
+      "Wael Sawan",
+      "BG Group",
+      "Pearl GTL"
+    ],
     "sector": "energy_oil_gas",
-    "related_tickers": ["BP", "XOM", "CVX"]
+    "related_tickers": [
+      "BP",
+      "XOM",
+      "CVX"
+    ]
   },
   {
     "company": "BP",
     "ticker": "BP",
     "exchange_symbol": "BPUSDT",
-    "keywords": ["BP", "British Petroleum", "Murray Auchincloss", "Castrol", "TNK-BP", "Deepwater Horizon"],
+    "keywords": [
+      "BP",
+      "British Petroleum",
+      "Murray Auchincloss",
+      "Castrol",
+      "TNK-BP",
+      "Deepwater Horizon"
+    ],
     "sector": "energy_oil_gas",
-    "related_tickers": ["SHEL", "XOM", "CVX"]
+    "related_tickers": [
+      "SHEL",
+      "XOM",
+      "CVX"
+    ]
   },
   {
     "company": "Schlumberger",
     "ticker": "SLB",
     "exchange_symbol": "SLBUSDT",
-    "keywords": ["Schlumberger", "SLB", "Olivier Le Peuch", "oilfield services", "ChampionX"],
+    "keywords": [
+      "Schlumberger",
+      "SLB",
+      "Olivier Le Peuch",
+      "oilfield services",
+      "ChampionX"
+    ],
     "sector": "energy_services",
-    "related_tickers": ["HAL", "BKR"]
+    "related_tickers": [
+      "HAL",
+      "BKR"
+    ]
   },
   {
     "company": "NextEra Energy",
     "ticker": "NEE",
     "exchange_symbol": "NEEUSDT",
-    "keywords": ["NextEra", "NextEra Energy", "NEE", "John Ketchum", "Florida Power & Light", "FPL", "renewable utility"],
+    "keywords": [
+      "NextEra",
+      "NextEra Energy",
+      "NEE",
+      "John Ketchum",
+      "Florida Power & Light",
+      "FPL",
+      "renewable utility"
+    ],
     "sector": "energy_utility",
-    "related_tickers": ["DUK", "SO"]
+    "related_tickers": [
+      "DUK",
+      "SO"
+    ]
   },
   {
     "company": "First Solar",
     "ticker": "FSLR",
     "exchange_symbol": "FSLRUSDT",
-    "keywords": ["First Solar", "FSLR", "Mark Widmar", "thin-film solar", "CdTe", "Series 7"],
+    "keywords": [
+      "First Solar",
+      "FSLR",
+      "Mark Widmar",
+      "thin-film solar",
+      "CdTe",
+      "Series 7"
+    ],
     "sector": "energy_renewables",
-    "related_tickers": ["ENPH", "RUN", "SEDG"]
+    "related_tickers": [
+      "ENPH",
+      "RUN",
+      "SEDG"
+    ]
   },
   {
     "company": "Enphase Energy",
     "ticker": "ENPH",
     "exchange_symbol": "ENPHUSDT",
-    "keywords": ["Enphase", "Enphase Energy", "ENPH", "Badri Kothandaraman", "IQ8 microinverter", "IQ Battery"],
+    "keywords": [
+      "Enphase",
+      "Enphase Energy",
+      "ENPH",
+      "Badri Kothandaraman",
+      "IQ8 microinverter",
+      "IQ Battery"
+    ],
     "sector": "energy_renewables",
-    "related_tickers": ["FSLR", "SEDG", "RUN"]
+    "related_tickers": [
+      "FSLR",
+      "SEDG",
+      "RUN"
+    ]
+  },
+  {
+    "company": "Toncoin",
+    "ticker": "TON",
+    "exchange_symbol": "TONUSDT",
+    "keywords": [
+      "Toncoin",
+      "TON",
+      "TON Foundation",
+      "The Open Network",
+      "Pavel Durov",
+      "Telegram blockchain",
+      "TVM",
+      "jetton"
+    ],
+    "sector": "crypto_l1",
+    "related_tickers": [
+      "NOT",
+      "DOGS",
+      "HMSTR"
+    ]
+  },
+  {
+    "company": "Notcoin",
+    "ticker": "NOT",
+    "exchange_symbol": "NOTUSDT",
+    "keywords": [
+      "Notcoin",
+      "NOT",
+      "tap-to-earn",
+      "Telegram game",
+      "Open Builders",
+      "Pivovarov"
+    ],
+    "sector": "crypto_meme",
+    "related_tickers": [
+      "DOGS",
+      "HMSTR",
+      "TON"
+    ]
+  },
+  {
+    "company": "Dogs",
+    "ticker": "DOGS",
+    "exchange_symbol": "DOGSUSDT",
+    "keywords": [
+      "Dogs",
+      "DOGS",
+      "Spotty Dogs",
+      "Telegram airdrop",
+      "TON meme"
+    ],
+    "sector": "crypto_meme",
+    "related_tickers": [
+      "NOT",
+      "HMSTR",
+      "TON"
+    ]
+  },
+  {
+    "company": "Hamster Kombat",
+    "ticker": "HMSTR",
+    "exchange_symbol": "HMSTRUSDT",
+    "keywords": [
+      "Hamster Kombat",
+      "HMSTR",
+      "Telegram clicker",
+      "TON listing",
+      "CEO Hamster"
+    ],
+    "sector": "crypto_meme",
+    "related_tickers": [
+      "NOT",
+      "DOGS",
+      "TON",
+      "CATI"
+    ]
+  },
+  {
+    "company": "Catizen",
+    "ticker": "CATI",
+    "exchange_symbol": "CATIUSDT",
+    "keywords": [
+      "Catizen",
+      "CATI",
+      "cat game",
+      "TON game",
+      "Telegram mini app"
+    ],
+    "sector": "crypto_meme",
+    "related_tickers": [
+      "HMSTR",
+      "NOT",
+      "DOGS",
+      "TON"
+    ]
+  },
+  {
+    "company": "MAJOR",
+    "ticker": "MAJOR",
+    "exchange_symbol": "MAJORUSDT",
+    "keywords": [
+      "Major",
+      "MAJOR",
+      "Major Telegram",
+      "TON token"
+    ],
+    "sector": "crypto_meme",
+    "related_tickers": [
+      "NOT",
+      "HMSTR",
+      "TON"
+    ]
   }
 ]
