@@ -17,6 +17,9 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 os.environ.setdefault("EXCHANGE_USE_MOCK", "true")
 os.environ.setdefault("TELEGRAM_ENABLED", "false")
 os.environ.setdefault("APP_ENV", "dev")
+# Disable rate-limiting in tests so we don't get spurious 429s when a single
+# test hammers /referral/me or /autotrade/{id}/test-keys repeatedly.
+os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
 
 
 @pytest.fixture(scope="session")

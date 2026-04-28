@@ -247,10 +247,10 @@ def admin_orders(
 # pricing copy. When pricing changes, update both this map and
 # `site/index.html` pricing section together.
 TIER_PRICE_USDT = {
-    "manual_plus": 19.0,
-    "auto_lite": 49.0,
-    "auto_pro": 99.0,
-    "vip": 499.0,
+    "manual_plus": 99.0,
+    "auto_lite": 249.0,
+    "auto_pro": 499.0,
+    "vip": 999.0,
 }
 
 
@@ -367,6 +367,22 @@ def metrics_signal_quality(
         1,
     ) if all_signals else None
 
+    # Trading-Risk: alert when 7-day win rate dips below 50% and we have
+    # at least 10 decided signals — small sample noise shouldn't trip
+    # the alarm. This drives the orange banner on the admin dashboard
+    # and (in a follow-up) emails Compliance via the agent ledger.
+    seven_d_start = datetime.utcnow() - timedelta(days=7)
+    last7 = [s for s in actionable if s.created_at and s.created_at >= seven_d_start]
+    wins_7 = sum(1 for s in last7 if s.result and s.result.result == "win")
+    losses_7 = sum(1 for s in last7 if s.result and s.result.result == "loss")
+    decided_7 = wins_7 + losses_7
+    win_rate_7d = round(100.0 * wins_7 / decided_7, 2) if decided_7 else None
+    alert = (
+        win_rate_7d is not None
+        and win_rate_7d < 50.0
+        and decided_7 >= 10
+    )
+
     return {
         "window_days": 30,
         "signals_total": len(all_signals),
@@ -376,6 +392,9 @@ def metrics_signal_quality(
         "losses": losses,
         "undecided": len(actionable) - decided,
         "win_rate_pct": win_rate,
+        "win_rate_7d_pct": win_rate_7d,
+        "win_rate_7d_decided": decided_7,
+        "win_rate_alert": alert,
         "avg_signal_score": avg_score,
         "avg_fake_risk": fake_risk_avg,
     }

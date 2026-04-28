@@ -31,6 +31,7 @@ from app.autotrade.risk_guard import daily_pnl
 from app.config.settings import get_settings
 from app.database.models import AutoTradeOrder, AutoTradeSubscription, User
 from app.database.session import get_db
+from app.security.rate_limit import test_keys_limiter
 
 router = APIRouter()
 
@@ -164,6 +165,7 @@ def test_keys(
     sub_id: int,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
+    _rl: None = Depends(test_keys_limiter),
 ) -> dict[str, Any]:
     """Health-check the stored API key against the exchange.
 
@@ -200,11 +202,23 @@ def test_keys(
     except AttributeError:
         return {"ok": False, "exchange": sub.exchange_id, "error": f"unknown exchange '{sub.exchange_id}'", "masked_key": masked}
 
+    # Decrypt the secret + optional passphrase. ccxt's authenticated calls
+    # (fetch_balance, fetch_positions, etc.) require both apiKey and secret;
+    # OKX/KuCoin additionally need `password` (passphrase).
     try:
-        # Note: api_secret_encrypted isn't on the model in the MVP — the
-        # encrypted blob already contains a JSON of {key, secret}. If
-        # that contract changes, this endpoint must be updated alongside.
-        instance = klass({"apiKey": api_key, "enableRateLimit": True})
+        api_secret = decrypt(sub.api_secret_encrypted) if sub.api_secret_encrypted else ""
+        passphrase = (
+            decrypt(sub.api_passphrase_encrypted) if sub.api_passphrase_encrypted else None
+        )
+    except Exception as exc:
+        return {"ok": False, "exchange": sub.exchange_id, "error": f"decrypt error: {type(exc).__name__}", "masked_key": masked}
+
+    config: dict[str, Any] = {"apiKey": api_key, "secret": api_secret, "enableRateLimit": True}
+    if passphrase:
+        config["password"] = passphrase
+
+    try:
+        instance = klass(config)
         instance.fetch_balance()
         return {"ok": True, "exchange": sub.exchange_id, "error": None, "masked_key": masked}
     except Exception as exc:

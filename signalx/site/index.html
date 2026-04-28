@@ -127,10 +127,36 @@
         <a href="#investors" class="px-6 py-3 rounded-xl btn-ghost">Apply as Investor</a>
         <a href="/app.html" class="px-6 py-3 rounded-xl btn-ghost">Open dashboard →</a>
       </div>
-      <div class="mt-12 flex items-center gap-6 text-sm text-[#9ca3af] fade-in">
+      <div class="mt-12 flex items-center gap-6 text-sm text-[#9ca3af] fade-in flex-wrap">
         <span class="flex items-center gap-2"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>No custody · trade-only API key</span>
         <span class="flex items-center gap-2"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>7-day paper-mode default</span>
         <span class="flex items-center gap-2"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>14-day money-back</span>
+      </div>
+
+      <!-- Anti-pump transparency rail.
+           Live numbers from /signals/filter-stats — fake-risk filter,
+           per-tier visibility, signals dropped today. Honest by default. -->
+      <div id="anti-pump-rail" class="mt-10 grid grid-cols-2 md:grid-cols-4 gap-3 fade-in">
+        <div class="glass rounded-xl px-4 py-3">
+          <div class="mono text-[10px] uppercase tracking-widest text-[#9ca3af]">Signals filtered (24h)</div>
+          <div id="ap-filtered" class="text-2xl font-semibold mt-1">—</div>
+          <div class="mono text-[11px] text-[#9ca3af]">noise removed before reaching you</div>
+        </div>
+        <div class="glass rounded-xl px-4 py-3">
+          <div class="mono text-[10px] uppercase tracking-widest text-[#9ca3af]">Visible signals (24h)</div>
+          <div id="ap-visible" class="text-2xl font-semibold mt-1">—</div>
+          <div class="mono text-[11px] text-[#9ca3af]">passed our fake-risk gate</div>
+        </div>
+        <div class="glass rounded-xl px-4 py-3">
+          <div class="mono text-[10px] uppercase tracking-widest text-[#9ca3af]">7-day win rate</div>
+          <div id="ap-winrate" class="text-2xl font-semibold mt-1">—</div>
+          <div class="mono text-[11px] text-[#9ca3af]">not a guarantee — past 7 days</div>
+        </div>
+        <div class="glass rounded-xl px-4 py-3">
+          <div class="mono text-[10px] uppercase tracking-widest text-[#9ca3af]">Fake-risk cap</div>
+          <div id="ap-cap" class="text-2xl font-semibold mt-1">≤ 30</div>
+          <div class="mono text-[11px] text-[#9ca3af]">strictest tier on this page</div>
+        </div>
       </div>
     </div>
   </section>
@@ -379,7 +405,7 @@
         <p>Event-driven trading signals for crypto stock perpetuals. v0.1 MVP.</p>
         <p class="mt-2">© 2025 SignalX. Not financial advice.</p>
       </div>
-      <div class="flex gap-10">
+      <div class="flex gap-10 flex-wrap">
         <div>
           <div class="text-white font-medium mb-2">Product</div>
           <a href="#bot" class="block">Auto-Trade Bot</a>
@@ -392,11 +418,57 @@
           <a href="#faq" class="block">FAQ</a>
           <a href="https://github.com/asabiru/easy" class="block">GitHub</a>
         </div>
+        <div>
+          <div class="text-white font-medium mb-2">Legal</div>
+          <a href="/legal/disclosures.html" class="block">Risk disclosures</a>
+          <a href="/legal/disclosures.html#geo" class="block">Geography &amp; sanctions</a>
+          <a href="/legal/disclosures.html#privacy" class="block">Privacy</a>
+        </div>
       </div>
+    </div>
+
+    <div class="max-w-7xl mx-auto px-6 mt-10 pt-6 border-t border-[#1c2031]">
+      <p class="text-xs leading-relaxed">
+        <strong class="text-[#cbd5e1]">Risk disclosure:</strong>
+        Trading perpetual futures involves substantial risk of loss and is
+        not suitable for every investor. SignalX is a signal-and-execution
+        tooling provider; we are not a broker, custodian, RIA, or
+        money-transmitter. We do not custody client funds. Past
+        performance does not guarantee future results. The
+        founder's quotation as a Russian Federal Financial Markets
+        specialist (broker / dealer / portfolio management /
+        forex-dealer) is a personal qualification — it does not imply
+        Bank of Russia licensing of the SignalX entity itself.
+        Service is restricted in OFAC-sanctioned jurisdictions and
+        FATF-greylisted regions. See
+        <a class="text-emerald-400" href="/legal/disclosures.html">full disclosures</a>.
+      </p>
     </div>
   </footer>
 
   <script>
+    // Anti-pump rail — pull live filter stats + win rate.
+    // Anonymous tier: only fake_risk ≤ 0.30 signals are exposed.
+    (async () => {
+      const api = window.SIGNALX_API || '';
+      try {
+        const [stats, perf] = await Promise.all([
+          fetch(api + '/signals/filter-stats').then(r => r.ok ? r.json() : null),
+          fetch(api + '/performance/summary').then(r => r.ok ? r.json() : null),
+        ]);
+        if (stats) {
+          document.getElementById('ap-filtered').textContent =
+            stats.signals_filtered + ' (' + stats.filtered_pct + '%)';
+          document.getElementById('ap-visible').textContent = stats.signals_visible;
+          // fake_risk is on the 0–100 scale; show it that way.
+          document.getElementById('ap-cap').textContent = '≤ ' + stats.fake_risk_cap;
+        }
+        if (perf && typeof perf.win_rate_pct === 'number') {
+          document.getElementById('ap-winrate').textContent = perf.win_rate_pct.toFixed(1) + '%';
+        }
+      } catch (err) { /* offline demo — leave em-dashes */ }
+    })();
+
     // Investor application form
     const form = document.getElementById('investor-form');
     if (form) form.addEventListener('submit', async (e) => {

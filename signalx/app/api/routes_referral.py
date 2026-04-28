@@ -30,6 +30,7 @@ from sqlalchemy.orm import Session
 from app.auth.deps import get_current_user
 from app.database.models import Referral, User
 from app.database.session import get_db
+from app.security.rate_limit import referral_limiter
 
 router = APIRouter()
 
@@ -58,6 +59,7 @@ def code_for_user(user_id: int) -> str:
 def my_referral(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
+    _rl: None = Depends(referral_limiter),
 ) -> dict[str, Any]:
     """Return the caller's referral code, count of referees, and earnings.
 

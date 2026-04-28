@@ -90,7 +90,17 @@ def create_app() -> FastAPI:
 
         app.mount("/assets", StaticFiles(directory=site_dir / "assets"), name="assets")
 
-        for page in ("app", "admin", "manager", "login", "signup"):
+        # Serve /legal/* (risk disclosures, privacy, etc.) as a static dir.
+        # Compliance owns these — never return 200 if the dir is missing.
+        legal_dir = site_dir / "legal"
+        if legal_dir.exists():
+            app.mount(
+                "/legal",
+                StaticFiles(directory=legal_dir, html=True),
+                name="legal",
+            )
+
+        for page in ("app", "admin", "manager", "login", "signup", "miniapp"):
             html_path = site_dir / f"{page}.html"
             if html_path.exists():
                 def _factory(path: Path):
