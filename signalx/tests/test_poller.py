@@ -44,6 +44,8 @@ def test_poll_all_sources_isolates_per_source_failures(db_session):
     ]), patch("app.news.poller.edgar_feeds", return_value=[]), \
          patch("app.news.poller.macro_energy_feeds", return_value=[]), \
          patch("app.news.poller.reddit_feeds", return_value=[]), \
+         patch("app.news.poller.mastodon_feeds", return_value=[]), \
+         patch("app.news.poller.stocktwits_config", return_value={"enabled": False}), \
          patch("app.news.poller.rss.fetch_rss", side_effect=[
              Exception("boom"),
              SourceFetchResult(source_id="ok_feed", payloads=[]),

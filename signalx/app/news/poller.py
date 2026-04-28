@@ -27,12 +27,16 @@ from sqlalchemy.orm import Session
 from app.api.routes_news import _run_pipeline
 from app.analysis.fake_risk import AuthorMeta
 from app.news.source_reliability import reliability_score
+from app.news.sources import mastodon as mastodon_src
 from app.news.sources import reddit, rss, sec_edgar
+from app.news.sources import stocktwits as stocktwits_src
 from app.news.sources.registry import (
     edgar_feeds,
     macro_energy_feeds,
+    mastodon_feeds,
     reddit_feeds,
     rss_feeds,
+    stocktwits_config,
 )
 from app.news.sources.types import IngestPayload, SourceFetchResult
 
@@ -62,8 +66,62 @@ def poll_all_sources(db: Session) -> list[PollSummary]:
     summaries.extend(_poll_kind("sec_edgar", edgar_feeds(), sec_edgar.fetch_edgar, db))
     summaries.extend(_poll_kind("macro_energy", macro_energy_feeds(), rss.fetch_rss, db))
     summaries.extend(_poll_kind("reddit", reddit_feeds(), reddit.fetch_subreddit, db))
+    summaries.extend(_poll_mastodon(mastodon_feeds(), db))
+    summaries.extend(_poll_stocktwits(db))
 
     return summaries
+
+
+def _poll_mastodon(feeds: list[dict], db: Session) -> list[PollSummary]:
+    """Mastodon collector takes (instance, tag) instead of (source_id, url)."""
+    out: list[PollSummary] = []
+    for feed in feeds:
+        sid = feed.get("id") or f"mastodon:{feed.get('tag', '?')}"
+        instance = feed.get("instance") or "https://mastodon.social"
+        tag = feed.get("tag", "")
+        if not tag:
+            out.append(PollSummary(source_id=sid, kind="mastodon", errors=["missing tag"]))
+            continue
+        try:
+            result = mastodon_src.fetch_tag(sid, instance, tag)
+        except Exception as exc:
+            log.exception("poller mastodon failed for %s: %s", sid, exc)
+            out.append(PollSummary(source_id=sid, kind="mastodon", errors=[str(exc)]))
+            continue
+        out.append(_consume(result, "mastodon", db))
+    return out
+
+
+def _poll_stocktwits(db: Session) -> list[PollSummary]:
+    """StockTwits collector polls one symbol-stream per equity in the universe.
+
+    We read the symbol allow-list from companies.json (loaded lazily here
+    to avoid a circular import) and skip crypto tickers (sector starts with
+    "crypto") because StockTwits cashtag streams there are dominated by
+    pump-and-dump posts that the fake_risk scorer already filters at
+    extreme cost. Disabled if `stocktwits.enabled` is False.
+    """
+    cfg = stocktwits_config()
+    if not cfg.get("enabled", True):
+        return []
+
+    # Lazy import to avoid pulling the universe loader into module import time.
+    from app.companies.universe import load_universe
+
+    out: list[PollSummary] = []
+    for c in load_universe():
+        ticker = c.ticker
+        sector = (c.sector or "").lower()
+        if not ticker or sector.startswith("crypto"):
+            continue
+        try:
+            result = stocktwits_src.fetch_cashtag(ticker)
+        except Exception as exc:
+            log.exception("poller stocktwits failed for %s: %s", ticker, exc)
+            out.append(PollSummary(source_id=f"stocktwits:{ticker}", kind="stocktwits", errors=[str(exc)]))
+            continue
+        out.append(_consume(result, "stocktwits", db))
+    return out
 
 
 def _poll_kind(kind: str, feeds: list[dict], fetcher, db: Session) -> list[PollSummary]:

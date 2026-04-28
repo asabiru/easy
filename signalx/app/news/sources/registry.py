@@ -36,13 +36,28 @@ def mastodon_feeds() -> list[dict]:
     return list(load_feeds().get("mastodon", []))
 
 
+def stocktwits_config() -> dict:
+    """StockTwits collector config: enabled, cadence, symbol allow-list.
+
+    Returns the raw object from feeds.json so callers can read both
+    `enabled` and `endpoint`. Polled symbols come from companies.json
+    (via the auto-trade universe) — only equities are polled, crypto
+    tickers are skipped.
+    """
+    return dict(load_feeds().get("stocktwits", {}))
+
+
+def bluesky_feeds() -> list[dict]:
+    return list(load_feeds().get("bluesky", []))
+
+
 def all_reliability() -> dict[str, int]:
     """Flat map of source_id → reliability for every configured feed.
     The source_reliability module folds these into the same lookup as
     sources.json / x_sources.json."""
     out: dict[str, int] = {}
     feeds = load_feeds()
-    for kind in ("rss", "sec_edgar", "macro_energy", "reddit", "mastodon"):
+    for kind in ("rss", "sec_edgar", "macro_energy", "reddit", "mastodon", "bluesky"):
         for f in feeds.get(kind, []):
             sid = f.get("id")
             if sid:

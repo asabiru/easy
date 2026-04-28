@@ -36,7 +36,9 @@
     "id": "stocktwits_cashtags",
     "endpoint": "https://api.stocktwits.com/api/2/streams/symbol/{symbol}.json",
     "reliability": 40,
-    "cadence_sec": 15
+    "cadence_sec": 60,
+    "enabled": false,
+    "_doc": "Disabled by default — enable per deploy after StockTwits rate-limit and posture is validated. Polled symbols come from companies.json (equities only)."
   },
 
   "reddit": [
