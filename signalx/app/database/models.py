@@ -513,9 +513,24 @@ class Withdrawal(Base):
 
     Lifecycle: queued → approved → sent (or → cancelled). Manual two-step
     operator approval in MVP — automation comes once we have multi-sig
-    treasury + automated NAV reconciliation."""
+    treasury + automated NAV reconciliation.
+
+    Uniqueness note
+    ---------------
+    `(chain, tx_hash)` is unique when tx_hash is not null — i.e. two
+    different withdrawal rows cannot record the same on-chain TX as
+    `sent`. This prevents an operator from accidentally tagging the
+    wrong row when reconciling on-chain transactions. Multiple NULL
+    tx_hash rows (queued / approved / cancelled) are still allowed
+    because SQL treats NULLs as distinct in unique constraints."""
 
     __tablename__ = "custody_withdrawals"
+    __table_args__ = (
+        UniqueConstraint(
+            "chain", "tx_hash",
+            name="uq_custody_withdrawals_chain_tx_hash",
+        ),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)

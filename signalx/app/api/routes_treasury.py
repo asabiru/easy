@@ -213,9 +213,29 @@ def withdrawal_send(
         raise HTTPException(
             status_code=409, detail=f"withdrawal must be approved first (is {wd.status})",
         )
+    tx_hash_clean = payload.tx_hash.strip()
+    # Guard against the operator pasting the same tx_hash on two
+    # different withdrawal rows. The DB-level UniqueConstraint on
+    # Withdrawal(chain, tx_hash) is the source of truth, but checking
+    # here lets us return a clean 409 with the conflicting row id
+    # instead of letting the IntegrityError bubble up as a 500.
+    conflict = (
+        db.query(Withdrawal)
+        .filter(
+            Withdrawal.chain == wd.chain,
+            Withdrawal.tx_hash == tx_hash_clean,
+            Withdrawal.id != wd.id,
+        )
+        .first()
+    )
+    if conflict is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"tx_hash already recorded on withdrawal {conflict.id}",
+        )
     wd.status = "sent"
     wd.sent_at = datetime.utcnow()
-    wd.tx_hash = payload.tx_hash.strip()
+    wd.tx_hash = tx_hash_clean
     db.add(wd)
     # Credit lifetime_withdraw on the wallet for accurate P&L on /wallet/me.
     wallet = (
@@ -230,10 +250,19 @@ def withdrawal_send(
         db.add(wallet)
     _audit(db, wd.user_id, actor.id, "custody_withdraw_sent", {
         "withdrawal_id": wd.id,
-        "tx_hash": payload.tx_hash,
+        "tx_hash": tx_hash_clean,
         "amount_usdt": float(wd.amount_usdt),
     })
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # Race: a concurrent /send call won between our pre-check and
+        # commit. Translate to the same 409 the pre-check would have raised.
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="tx_hash conflict on concurrent send (retry)",
+        )
     return {"id": wd.id, "status": wd.status, "tx_hash": wd.tx_hash}
 
 

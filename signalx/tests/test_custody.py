@@ -704,6 +704,58 @@ def test_treasury_health_warn_on_unattributed_deposit(client_with_db):
     assert body["overall_status"] == "warn"
 
 
+def test_withdrawal_send_rejects_duplicate_tx_hash(client_with_db):
+    """Two distinct withdrawals must not both record the same on-chain
+    tx_hash as `sent`. Pre-check returns 409 with the conflicting row id;
+    DB-level UniqueConstraint on Withdrawal(chain, tx_hash) is the
+    source-of-truth fallback for races."""
+    from datetime import datetime, timedelta
+
+    cl, db = client_with_db
+    _register(cl, "wd-dup@example.com")
+    _kyc_approve(db, "wd-dup@example.com")
+    cl.headers.pop("Authorization", None); cl.cookies.clear()
+    _register(cl, "ad-dup@example.com")
+    _promote_admin(db, "ad-dup@example.com")
+    cl.headers.pop("Authorization", None); cl.cookies.clear()
+    cl.post("/auth/login", json={"email": "ad-dup@example.com", "password": "pw1234567"})
+
+    from app.database.models import Deposit, User, Withdrawal
+    cu = db.query(User).filter(User.email == "wd-dup@example.com").first()
+    cl.post("/admin/treasury/credit-deposit", json={
+        "user_id": cu.id, "chain": "trc20", "tx_hash": "DEP1", "amount_usdt": 1000.0,
+    })
+    d = db.query(Deposit).filter(Deposit.tx_hash == "DEP1").first()
+    d.credited_at = datetime.utcnow() - timedelta(days=2)
+    db.add(d); db.commit()
+
+    cl.headers.pop("Authorization", None); cl.cookies.clear()
+    cl.post("/auth/login", json={"email": "wd-dup@example.com", "password": "pw1234567"})
+    wd1 = cl.post("/wallet/withdraw", json={
+        "chain": "trc20", "destination_address": "T" + "1" * 33, "amount_usdt": 100.0,
+    }).json()["withdrawal_id"]
+    wd2 = cl.post("/wallet/withdraw", json={
+        "chain": "trc20", "destination_address": "T" + "2" * 33, "amount_usdt": 100.0,
+    }).json()["withdrawal_id"]
+
+    cl.headers.pop("Authorization", None); cl.cookies.clear()
+    cl.post("/auth/login", json={"email": "ad-dup@example.com", "password": "pw1234567"})
+    cl.post(f"/admin/treasury/withdrawals/{wd1}/approve")
+    cl.post(f"/admin/treasury/withdrawals/{wd2}/approve")
+
+    r1 = cl.post(f"/admin/treasury/withdrawals/{wd1}/send", json={"tx_hash": "ONCHAIN-XYZ"})
+    assert r1.status_code == 200
+
+    r2 = cl.post(f"/admin/treasury/withdrawals/{wd2}/send", json={"tx_hash": "ONCHAIN-XYZ"})
+    assert r2.status_code == 409
+    assert str(wd1) in r2.json()["detail"]
+
+    db.expire_all()
+    wd2_row = db.query(Withdrawal).filter(Withdrawal.id == wd2).first()
+    assert wd2_row.status == "approved"
+    assert wd2_row.tx_hash is None
+
+
 def test_treasury_health_flags_signature_failure_spike(client_with_db):
     """Webhook signature failures in last 1h roll into the health status:
     >=3 → warn, >=10 → critical. Operator sees the count in the dashboard
