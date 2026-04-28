@@ -600,3 +600,62 @@ def test_paper_mode_refuses_paused_or_killed(client_with_db):
     r = client.post(f"/autotrade/{live_id}/paper-mode")
     assert r.status_code == 200
     assert r.json()["status"] == "paper"
+
+
+def test_go_live_2fa_gate_checks_subscription_owner_not_caller(client_with_db, monkeypatch):
+    """Regression for BUG_pr-review-job-982f38de35804aaeaed8f092e5a1cded_0003.
+
+    The 2FA gate on /autotrade/{id}/go-live for VIP/Auto-Pro tiers must
+    check the SUBSCRIPTION OWNER's totp_enabled flag, not the calling
+    user's. Otherwise an admin (with or without 2FA) calling go-live on
+    behalf of a client would silently bypass the hard rule documented
+    in routes_2fa.py ('VIP and Auto-Pro must have totp_enabled=True
+    before go-live').
+
+    Setup: client owns a VIP sub but has NOT enabled 2FA. Admin (also
+    without 2FA) calls /go-live on behalf. Pre-fix: passes (admin role
+    short-circuited the check). Post-fix: 403, owner must enable 2FA.
+    """
+    from datetime import datetime
+    from app.database.models import AutoTradeSubscription, User
+    from app.auth.security import hash_password
+
+    monkeypatch.setenv("ENABLE_AUTOTRADE", "true")
+    from app.config.settings import get_settings
+    get_settings.cache_clear()
+
+    client, db = client_with_db
+    # Client without 2FA.
+    db.add(User(email="vip@example.com", password_hash=hash_password("p"),
+                role="client", is_active=True, totp_enabled=False))
+    # Admin without 2FA (acts on behalf of the client via dashboard).
+    db.add(User(email="admin@example.com", password_hash=hash_password("p"),
+                role="admin", is_active=True, totp_enabled=False))
+    db.commit()
+    owner = db.query(User).filter(User.email == "vip@example.com").first()
+    sub = AutoTradeSubscription(
+        email="vip@example.com",
+        user_id=owner.id,
+        tier="vip",
+        exchange_id="bybit",
+        api_key_encrypted="x" * 16,
+        api_secret_encrypted="x" * 16,
+        status="paper",
+        live_trading_enabled=False,
+        paper_until=datetime(2020, 1, 1),
+    )
+    db.add(sub); db.commit(); db.refresh(sub)
+
+    client.post("/auth/login", json={"email": "admin@example.com", "password": "p"})
+    r = client.post(f"/autotrade/{sub.id}/go-live")
+    assert r.status_code == 403, r.text
+    assert "2FA required" in r.json()["detail"]
+    assert "subscription owner" in r.json()["detail"]
+
+    # Owner enables 2FA → admin can now go-live on their behalf.
+    owner.totp_enabled = True
+    db.add(owner); db.commit()
+    r = client.post(f"/autotrade/{sub.id}/go-live")
+    # May still hit risk-ack gate (412) — that's a different gate. The
+    # 2FA gate should no longer trigger.
+    assert r.status_code != 403 or "2FA" not in r.json().get("detail", "")

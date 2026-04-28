@@ -268,6 +268,38 @@ def test_nav_snapshot_recomputes_share_price_and_accrues_fees(client_with_db):
     assert abs(float(wallet.shares) - (1000.0 - 100.0 / 1.5)) < 0.5
     assert abs(float(wallet.hwm_share_price) - 1.5) < 1e-6
 
+    # Treasury wallet now holds the fee shares so total_shares is invariant.
+    treasury_user = db.query(User).filter(User.email == "treasury@signalx.internal").first()
+    assert treasury_user is not None and treasury_user.is_active is False
+    treasury_wallet = (
+        db.query(ClientWallet)
+        .filter(ClientWallet.user_id == treasury_user.id)
+        .first()
+    )
+    assert treasury_wallet is not None
+    assert abs(float(treasury_wallet.shares) - 100.0 / 1.5) < 0.5
+    # Sum of all shares equals the original 1000 (transfer, not burn).
+    total = db.query(ClientWallet).all()
+    assert abs(sum(float(w.shares) for w in total) - 1000.0) < 1e-6
+
+    # PerformanceFee row records the pre/post HWM correctly.
+    from app.database.models import PerformanceFee
+    pf = (
+        db.query(PerformanceFee)
+        .filter(PerformanceFee.user_id == client_user.id)
+        .order_by(PerformanceFee.id.desc())
+        .first()
+    )
+    assert pf is not None
+    assert abs(float(pf.hwm_before) - 1.0) < 1e-6
+    assert abs(float(pf.hwm_after) - 1.5) < 1e-6
+
+    # Pool view excludes treasury from client_count.
+    cl.post("/auth/login", json={"email": "admin@example.com", "password": "pw1234567"})
+    pool = cl.get("/admin/treasury/pool").json()
+    assert pool["client_count"] == 1
+    assert pool["treasury_fee_shares"] > 0
+
 
 # ──────────────────────── /wallet/withdraw flow ───────────────────── #
 

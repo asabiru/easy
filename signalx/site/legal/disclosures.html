@@ -27,19 +27,85 @@
 
   <h2 id="who-we-are">1. Who we are</h2>
   <p>SignalX (the <em>"Service"</em>) is a software platform that publishes news-driven
-    trading signals for cryptocurrency-denominated perpetual futures and, optionally,
-    routes those signals into an exchange account that the user separately operates.</p>
+    trading signals for cryptocurrency-denominated perpetual futures. The Service operates
+    in two distinct modes; which one applies to you depends on which mode you enrol in:</p>
   <ul>
-    <li>SignalX is <strong>not</strong> a broker, dealer, custodian, money-services business,
-      registered investment adviser (RIA), or licensed exchange.</li>
-    <li>SignalX <strong>does not custody, hold, or co-mingle</strong> client funds. All
-      trades execute on the user's own account at a third-party exchange (Bybit,
-      Binance, OKX, etc.) using a trade-only API key the user generates.</li>
+    <li><strong>Mode A — execution-as-a-service (no custody).</strong> You retain full
+      custody of your USDT on a third-party exchange (Bybit, Binance, OKX, etc.) and
+      provide SignalX with a trade-only API key. SignalX never holds, moves, or
+      co-mingles your funds. This is the default mode.</li>
+    <li><strong>Mode B — managed pool (custody).</strong> You deposit USDT to a
+      SignalX-controlled treasury wallet. SignalX trades the aggregated pool on your
+      behalf and tracks your fractional ownership through internally-issued shares.
+      Profits and losses propagate proportionally; performance and management fees apply.
+      This mode is currently gated and only available to specific opt-in clients while
+      the Service obtains the necessary licences in your jurisdiction.</li>
+  </ul>
+  <ul>
+    <li>SignalX is <strong>not</strong> a broker, dealer, registered investment adviser
+      (RIA), or licensed exchange. In Mode B, SignalX acts as custodian and discretionary
+      manager — see Section 1b below for the full custody disclaimer.</li>
     <li>SignalX does <strong>not</strong> execute orders on behalf of clients with respect to
       regulated securities. Tokenised stock perpetuals are crypto derivatives offered
       by third-party exchanges; SignalX is not the issuer, market-maker, or settlement
       agent.</li>
   </ul>
+
+  <h2 id="custody">1b. Custody (Mode B) — what holding your USDT means</h2>
+  <p>If you enrol in Mode B (managed pool), you transfer beneficial ownership of your
+    USDT to SignalX. The Service then becomes a <strong>custodian and discretionary
+    manager</strong> over your funds. You should understand the following:</p>
+  <ul>
+    <li><strong>Pooled custody.</strong> Your USDT is co-mingled with deposits from other
+      Mode-B clients in shared treasury wallets across one or more chains
+      (TRC20 / TON / Solana / BSC / ERC20). You hold an internal <em>share</em> in the
+      pool — not a segregated balance. The share's value moves with the pool's NAV.</li>
+    <li><strong>No depositor protection.</strong> SignalX deposits are not covered by
+      FDIC, SIPC, FSCS, СБВ, or any government depositor-insurance scheme. If SignalX
+      becomes insolvent, suffers a key compromise, or is subject to regulatory seizure,
+      you may lose some or all of your USDT, and you have no claim against any
+      government insurance fund.</li>
+    <li><strong>Smart-contract and operational risk.</strong> SignalX uses a combination
+      of self-custodied operator wallets (cold + multi-sig hot) and on-exchange margin
+      accounts. Each layer has a non-zero failure rate. Examples: a treasury private
+      key could be compromised; a partner exchange could halt withdrawals; a
+      cross-chain bridge used to rebalance USDT between networks could be exploited.
+      Any of these can cause a permanent loss of pool capital.</li>
+    <li><strong>Withdrawals are not instant.</strong> Withdrawal requests are queued and
+      reviewed by an operator. We may delay, batch, or temporarily pause withdrawals
+      during periods of high volatility, exchange-side restrictions, or anti-money-laundering
+      review of the destination address. You consent to a withdrawal cooldown of up to
+      24 hours after each deposit and to a 2FA confirmation for withdrawals above
+      5 000 USDT.</li>
+    <li><strong>Performance &amp; management fees.</strong> Mode B charges a
+      <strong>20% performance fee</strong> on net gains above your high-water mark
+      (HWM) — a per-client all-time-high share price — and a <strong>2% management
+      fee per year</strong>, accrued daily on your equity. Both fees are taken in
+      shares, transferred from your wallet to the SignalX treasury at each NAV
+      snapshot. You owe a performance fee only on gains the pool has actually
+      delivered above your prior HWM, not on the pool's all-time gains.</li>
+    <li><strong>Licensing posture.</strong> SignalX may not be licensed as an investment
+      manager, fund operator, virtual-asset service provider (VASP), or
+      collective-investment-scheme manager in your jurisdiction. Where licences are
+      required and not yet held, the Mode-B endpoint will refuse with an HTTP 503 and
+      no deposits will be accepted. By depositing, you confirm that you have read and
+      accepted this section, that you understand SignalX is operating without a
+      financial licence, and that you waive any consumer-protection or depositor-protection
+      claim against SignalX that depends on such a licence existing.</li>
+    <li><strong>Tax.</strong> Distributions from Mode B (withdrawals greater than your
+      lifetime deposits) may be taxable as capital gain, ordinary income, or as a
+      return of capital, depending on your residence. SignalX does not issue 1099s,
+      P11Ds, или 2-НДФЛ. You are solely responsible for declaring and paying tax.</li>
+    <li><strong>Right to refuse.</strong> SignalX reserves the right to refuse, delay,
+      or unwind any deposit, withdrawal, or share-issuance event at the operator's
+      discretion in response to AML/sanctions screening, fraud investigations, or
+      court order. We will return refused deposits to the originating address minus
+      any chain fees.</li>
+  </ul>
+  <p class="panel-note"><strong>If you are not comfortable with any of the above, do
+    not deposit.</strong> Use Mode A (no-custody, exchange API keys) instead. Mode A
+    is the safer option from a regulatory / depositor-protection standpoint and is
+    available to all clients.</p>
 
   <h2 id="founder-qualification">2. Founder qualification — what it does and does not mean</h2>
   <p>SignalX's founder holds a qualification certificate as a Russian Federal Financial

@@ -170,12 +170,29 @@ def go_live(
         )
     # 2FA gate for the higher tiers — VIP and Auto-Pro both have leverage
     # and notional that warrant a hardware-key class authn before any live
-    # order dispatch. Lower tiers may still enable 2FA via /auth/2fa/setup.
-    if sub.tier in ("vip", "auto_pro") and user.role != "admin" and not user.totp_enabled:
-        raise HTTPException(
-            status_code=403,
-            detail=f"2FA required for tier '{sub.tier}'. POST /auth/2fa/setup.",
-        )
+    # order dispatch. Mirrors the KYC gate above: we always check the
+    # subscription **owner's** TOTP state, not the caller's. Otherwise an
+    # admin calling /go-live on behalf of a client would skip the 2FA hard
+    # rule documented in routes_2fa.py ("Mandatory tiers: VIP and Auto-Pro
+    # must have totp_enabled=True before go-live"). For un-owned legacy
+    # subs (`sub.user_id is None`, exception path created only in tests),
+    # we fall back to the caller — same as the old behaviour.
+    # (BUG_0003 in pr-review-job-982f38de35804aaeaed8f092e5a1cded.)
+    if sub.tier in ("vip", "auto_pro"):
+        if sub.user_id is not None:
+            owner = db.query(User).filter(User.id == sub.user_id).first()
+            owner_totp_enabled = bool(owner.totp_enabled) if owner else False
+        else:
+            owner_totp_enabled = bool(user.totp_enabled)
+        if not owner_totp_enabled:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f"2FA required for tier '{sub.tier}'. The subscription "
+                    "owner must enable TOTP via POST /auth/2fa/setup before "
+                    "live trading."
+                ),
+            )
     # Risk acknowledgement re-checked at go-live so a bumped
     # RISK_ACK_VERSION blocks live trading until re-accepted.
     require_risk_ack(user)

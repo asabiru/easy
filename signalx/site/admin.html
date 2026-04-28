@@ -22,6 +22,7 @@
         <a data-tab="orders">Orders</a>
         <a data-tab="audit">Audit</a>
         <a data-tab="compliance">Compliance</a>
+        <a data-tab="treasury">Treasury</a>
         <a href="/manager.html">↗ Manager view</a>
         <a href="/app.html">↗ Client view</a>
       </nav>
@@ -146,6 +147,70 @@
           </table>
         </div>
       </section>
+
+      <section data-tab="treasury" hidden>
+        <div class="kpi-grid" id="treasury-kpis">
+          <div class="kpi"><div class="label">Total AUM (USDT)</div><div class="value" id="treas-aum">—</div></div>
+          <div class="kpi"><div class="label">Total shares</div><div class="value" id="treas-shares" style="font-size:18px">—</div></div>
+          <div class="kpi"><div class="label">Share price</div><div class="value" id="treas-price" style="font-size:18px">—</div></div>
+          <div class="kpi"><div class="label">Active clients</div><div class="value" id="treas-clients" style="font-size:18px">—</div></div>
+        </div>
+        <div class="panel">
+          <h3 style="display:flex;justify-content:space-between;align-items:center">
+            By chain
+            <button class="btn btn-primary" onclick="openSnapshotModal()">+ NAV snapshot</button>
+          </h3>
+          <table>
+            <thead><tr><th>Chain</th><th>Total in (USDT)</th><th>Total out (USDT)</th><th>Net</th><th>Deposits</th><th>Withdrawals</th></tr></thead>
+            <tbody id="treas-bychain-tbody"></tbody>
+          </table>
+        </div>
+        <div class="panel" style="margin-top:16px">
+          <h3 style="display:flex;justify-content:space-between;align-items:center">
+            Withdrawal queue <span class="muted" style="font-size:11px">queued + approved · manual operator review</span>
+            <span id="treas-queue-count" class="pill">0</span>
+          </h3>
+          <table>
+            <thead><tr><th>ID</th><th>User</th><th>Chain</th><th>Destination</th><th>Amount (USDT)</th><th>Shares</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead>
+            <tbody id="treas-queue-tbody"><tr><td colspan="9" class="empty">Loading…</td></tr></tbody>
+          </table>
+        </div>
+        <div class="panel" style="margin-top:16px">
+          <h3>Manual deposit credit <span class="muted" style="font-size:11px">MVP — before chain webhooks</span></h3>
+          <p class="muted" style="font-size:12px;margin-bottom:8px">
+            Idempotent on (chain, tx_hash). Re-calling with the same TX returns the existing
+            row without double-issuing shares.
+          </p>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:8px;align-items:end">
+            <input id="cd-user-id" type="number" placeholder="User ID" />
+            <select id="cd-chain">
+              <option value="trc20">TRC20</option><option value="ton">TON</option><option value="sol">Solana</option>
+              <option value="bsc">BSC</option><option value="erc20">ERC20</option>
+            </select>
+            <input id="cd-tx" placeholder="TX hash" />
+            <input id="cd-amt" type="number" step="0.01" min="0.01" placeholder="USDT amount" />
+            <button class="btn btn-primary" onclick="creditDeposit()">Credit</button>
+          </div>
+          <div id="cd-result" style="margin-top:8px"></div>
+        </div>
+      </section>
+
+      <!-- NAV-snapshot modal -->
+      <div id="snap-modal" style="display:none;position:fixed;inset:0;background:rgba(8,11,18,0.7);z-index:50;align-items:center;justify-content:center">
+        <div class="panel" style="max-width:480px;width:92%">
+          <h3>Take NAV snapshot</h3>
+          <p class="muted" style="font-size:12px;margin-bottom:10px">
+            Operator-supplied total AUM in USDT (exchange balance + open positions marked-to-market + treasury USDT − pending fee transfers). Triggers HWM-based performance fee accrual.
+          </p>
+          <input id="snap-aum" type="number" step="0.01" placeholder="Total AUM (USDT)" style="width:100%;margin-bottom:8px" />
+          <input id="snap-note" placeholder="Note (optional, max 256 chars)" style="width:100%;margin-bottom:12px" />
+          <div style="display:flex;gap:8px;justify-content:flex-end">
+            <button class="btn" onclick="closeSnapshotModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="submitSnapshot()">Snapshot</button>
+          </div>
+          <div id="snap-result" style="margin-top:8px"></div>
+        </div>
+      </div>
     </main>
   </div>
 
@@ -168,7 +233,7 @@
         system: 'System overview', revenue: 'Revenue dashboard', quality: 'Signal quality',
         users: 'Users', subs: 'Subscriptions', referrals: 'Referrals',
         signals: 'Signals', orders: 'Orders', audit: 'Audit log',
-        compliance: 'Compliance / KYC'
+        compliance: 'Compliance / KYC', treasury: 'Treasury · managed pool'
       })[name];
       loadCurrentTab();
     }
@@ -377,11 +442,114 @@
       `).join('') || '<tr><td colspan="7" class="muted" style="text-align:center">No recent referrals.</td></tr>';
     }
 
+    // ─────────────────────────── Treasury ─────────────────────────── //
+    function fmtN(n, d=2) {
+      if (n === null || n === undefined || Number.isNaN(n)) return '—';
+      return Number(n).toLocaleString('en-US', {minimumFractionDigits: d, maximumFractionDigits: d});
+    }
+
+    async function loadTreasury() {
+      const [pool, queue] = await Promise.all([
+        SX.api('/admin/treasury/pool'),
+        SX.api('/admin/treasury/withdrawals/queue'),
+      ]);
+      document.getElementById('treas-aum').textContent = '$' + fmtN(pool.total_aum_usdt);
+      document.getElementById('treas-shares').textContent = fmtN(pool.total_shares, 4);
+      document.getElementById('treas-price').textContent = '$' + fmtN(pool.share_price_usdt, 6);
+      document.getElementById('treas-clients').textContent = pool.client_count;
+
+      document.getElementById('treas-bychain-tbody').innerHTML = Object.entries(pool.by_chain).map(([chain, v]) => `<tr>
+        <td><strong>${chain.toUpperCase()}</strong></td>
+        <td>${fmtN(v.total_in_usdt)}</td>
+        <td>${fmtN(v.total_out_usdt)}</td>
+        <td style="color:${v.total_in_usdt - v.total_out_usdt >= 0 ? 'var(--accent)' : 'var(--danger)'}">${fmtN(v.total_in_usdt - v.total_out_usdt)}</td>
+        <td>${v.deposit_count}</td>
+        <td>${v.withdraw_count}</td>
+      </tr>`).join('');
+
+      document.getElementById('treas-queue-count').textContent = queue.items.length;
+      document.getElementById('treas-queue-tbody').innerHTML = queue.items.length === 0
+        ? '<tr><td colspan="9" class="empty">Queue is empty.</td></tr>'
+        : queue.items.map(r => `<tr>
+            <td>#${r.id}</td>
+            <td>${r.user_id}</td>
+            <td>${r.chain.toUpperCase()}</td>
+            <td><code style="word-break:break-all">${r.destination_address}</code></td>
+            <td>${fmtN(r.amount_usdt)}</td>
+            <td>${fmtN(r.shares_burned, 4)}</td>
+            <td><span class="pill">${r.status}</span></td>
+            <td>${(r.created_at || '').slice(0, 16).replace('T', ' ')}</td>
+            <td>
+              ${r.status === 'queued' ? `<button class="btn btn-primary" onclick="approveWd(${r.id})">Approve</button>` : ''}
+              ${r.status === 'approved' ? `<button class="btn btn-primary" onclick="sendWd(${r.id})">Mark sent</button>` : ''}
+              <button class="btn" onclick="cancelWd(${r.id})">Cancel</button>
+            </td>
+          </tr>`).join('');
+    }
+
+    async function approveWd(id) {
+      try { await SX.api(`/admin/treasury/withdrawals/${id}/approve`, {method: 'POST'}); }
+      catch (e) { alert(e.message); return; }
+      await loadTreasury();
+    }
+    async function sendWd(id) {
+      const tx = prompt('On-chain TX hash for withdrawal #' + id);
+      if (!tx) return;
+      try { await SX.api(`/admin/treasury/withdrawals/${id}/send`, {method: 'POST', body: JSON.stringify({tx_hash: tx})}); }
+      catch (e) { alert(e.message); return; }
+      await loadTreasury();
+    }
+    async function cancelWd(id) {
+      const reason = prompt('Cancel reason (min 4 chars) for #' + id);
+      if (!reason || reason.length < 4) return;
+      try { await SX.api(`/admin/treasury/withdrawals/${id}/cancel`, {method: 'POST', body: JSON.stringify({reason})}); }
+      catch (e) { alert(e.message); return; }
+      await loadTreasury();
+    }
+    window.approveWd = approveWd; window.sendWd = sendWd; window.cancelWd = cancelWd;
+
+    function openSnapshotModal() { document.getElementById('snap-modal').style.display = 'flex'; }
+    function closeSnapshotModal() { document.getElementById('snap-modal').style.display = 'none'; }
+    window.openSnapshotModal = openSnapshotModal; window.closeSnapshotModal = closeSnapshotModal;
+
+    async function submitSnapshot() {
+      const aum = parseFloat(document.getElementById('snap-aum').value);
+      const note = document.getElementById('snap-note').value.trim();
+      const out = document.getElementById('snap-result');
+      if (!(aum >= 0)) { out.innerHTML = '<div style="color:var(--warn)">Enter AUM</div>'; return; }
+      try {
+        const r = await SX.api('/admin/treasury/nav/snapshot', {method: 'POST', body: JSON.stringify({aum_usdt: aum, note})});
+        out.innerHTML = `<div style="color:var(--accent)">Snapshot #${r.id} · share-price $${fmtN(r.share_price_usdt, 6)}</div>`;
+        await loadTreasury();
+      } catch (e) { out.innerHTML = `<div style="color:var(--danger)">${e.message}</div>`; }
+    }
+    window.submitSnapshot = submitSnapshot;
+
+    async function creditDeposit() {
+      const out = document.getElementById('cd-result');
+      const payload = {
+        user_id: parseInt(document.getElementById('cd-user-id').value, 10),
+        chain: document.getElementById('cd-chain').value,
+        tx_hash: document.getElementById('cd-tx').value.trim(),
+        amount_usdt: parseFloat(document.getElementById('cd-amt').value),
+      };
+      if (!payload.user_id || !payload.tx_hash || !(payload.amount_usdt > 0)) {
+        out.innerHTML = '<div style="color:var(--warn)">Fill in user, TX, amount</div>'; return;
+      }
+      try {
+        const r = await SX.api('/admin/treasury/credit-deposit', {method: 'POST', body: JSON.stringify(payload)});
+        out.innerHTML = `<div style="color:var(--accent)">${r.idempotent ? 'Already credited' : 'Credited'} — ${fmtN(r.shares_credited, 4)} shares @ $${fmtN(r.share_price_at_credit, 6)}</div>`;
+        await loadTreasury();
+      } catch (e) { out.innerHTML = `<div style="color:var(--danger)">${e.message}</div>`; }
+    }
+    window.creditDeposit = creditDeposit;
+
     function loadCurrentTab() {
       ({
         system: loadSystem, revenue: loadRevenue, quality: loadQuality,
         users: loadUsers, subs: loadSubs, referrals: loadReferrals,
         signals: loadSignals, orders: loadOrders, audit: loadAudit, compliance: loadCompliance,
+        treasury: loadTreasury,
       })[currentTab]();
     }
 

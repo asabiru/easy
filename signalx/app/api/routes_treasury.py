@@ -50,6 +50,8 @@ from app.database.session import get_db
 log = logging.getLogger(__name__)
 router = APIRouter()
 
+TREASURY_INTERNAL_EMAIL = "treasury@signalx.internal"
+
 
 def _audit(db: Session, user_id: int | None, actor_id: int, kind: str, payload: dict[str, Any]) -> None:
     try:
@@ -77,11 +79,22 @@ def pool_overview(
     actor: User = Depends(require_role("admin", "manager")),
 ) -> dict[str, Any]:
     snap = db.query(NavSnapshot).order_by(NavSnapshot.id.desc()).first()
+    # `total_shares` includes the internal treasury wallet (which holds
+    # accrued fee shares). That's intentional: AUM is divided by ALL
+    # outstanding shares including treasury, otherwise burning fee shares
+    # would make the share price drift upward for clients.
     total_shares = float(
         db.query(ClientWallet).with_entities(
             __import__("sqlalchemy").func.coalesce(__import__("sqlalchemy").func.sum(ClientWallet.shares), 0.0)
         ).scalar() or 0.0
     )
+    # Treasury fee shares — surfaced separately so the operator can see
+    # accrued-but-uncollected fees at a glance.
+    treasury_user = db.query(User).filter(User.email == TREASURY_INTERNAL_EMAIL).first()
+    treasury_shares = 0.0
+    if treasury_user:
+        tw = db.query(ClientWallet).filter(ClientWallet.user_id == treasury_user.id).first()
+        treasury_shares = float(tw.shares) if tw else 0.0
     by_chain: dict[str, dict[str, float]] = {}
     for chain in ("trc20", "erc20", "ton", "sol", "bsc"):
         cred = (
@@ -100,15 +113,17 @@ def pool_overview(
             "deposit_count": len(cred),
             "withdraw_count": len(wd),
         }
+    client_q = db.query(ClientWallet).filter(ClientWallet.shares > 0)
+    if treasury_user:
+        client_q = client_q.filter(ClientWallet.user_id != treasury_user.id)
     return {
         "total_aum_usdt": float(snap.total_aum_usdt) if snap else 0.0,
         "total_shares": total_shares,
+        "treasury_fee_shares": treasury_shares,
         "share_price_usdt": float(snap.share_price) if snap else 1.0,
         "snapshot_at": snap.at.isoformat() if snap else None,
         "by_chain": by_chain,
-        "client_count": int(
-            db.query(ClientWallet).filter(ClientWallet.shares > 0).count()
-        ),
+        "client_count": int(client_q.count()),
     }
 
 
@@ -267,12 +282,58 @@ class NavSnapIn(BaseModel):
     note: str = Field(default="", max_length=256)
 
 
+def _get_or_create_treasury_wallet(db: Session) -> ClientWallet:
+    """Internal-user wallet that holds performance + management fee shares.
+
+    Fees are share-transfers (burn-from-client + credit-to-treasury), not
+    burns. Without crediting them somewhere, total_shares would silently
+    shrink while AUM stayed constant, causing the share-price denominator
+    to drift upward on every snapshot. Holding fees in a wallet keeps
+    `sum(shares)` invariant so AUM/shares is stable.
+
+    The treasury wallet is owned by an internal `User` row with a
+    non-routable email and `is_active=False` (so the user cannot log in
+    or appear in client-facing queries). Created on first fee accrual.
+    """
+    user = db.query(User).filter(User.email == TREASURY_INTERNAL_EMAIL).first()
+    if user is None:
+        # is_active=False → admin queries on real users still skip this
+        # row; password_hash is unusable so login is impossible.
+        user = User(
+            email=TREASURY_INTERNAL_EMAIL,
+            password_hash="!disabled-treasury-internal",
+            role="admin",
+            is_active=False,
+        )
+        db.add(user)
+        db.flush()  # need user.id for the wallet FK before commit
+    wallet = (
+        db.query(ClientWallet)
+        .filter(ClientWallet.user_id == user.id)
+        .first()
+    )
+    if wallet is None:
+        wallet = ClientWallet(
+            user_id=user.id,
+            shares=0.0,
+            balance_usdt=0.0,
+            hwm_share_price=1.0,
+        )
+        db.add(wallet)
+        db.flush()
+    return wallet
+
+
 @router.post("/admin/treasury/nav/snapshot")
 def nav_snapshot(
     payload: NavSnapIn,
     db: Session = Depends(get_db),
     actor: User = Depends(require_role("admin")),
 ) -> dict[str, Any]:
+    # `total_shares` is invariant across the fee loop: fee-shares are
+    # transferred (client → treasury wallet), not burned, so the sum
+    # stays constant and AUM/total_shares stays stable. We compute it
+    # once and reuse it for both the snapshot row and the fee math.
     total_shares = float(
         db.query(ClientWallet).with_entities(
             __import__("sqlalchemy").func.coalesce(__import__("sqlalchemy").func.sum(ClientWallet.shares), 0.0)
@@ -287,17 +348,26 @@ def nav_snapshot(
     )
     db.add(snap)
 
-    # Accrue performance fees for every wallet whose share-price beat
-    # its HWM. The fee is taken in shares, so pool AUM is unchanged —
-    # only share-of-pool reallocates from clients to the treasury.
+    # Accrue performance fees for every CLIENT wallet whose share-price
+    # beat its HWM. The fee is taken in shares, transferred from the
+    # client wallet to the internal treasury wallet, so pool AUM is
+    # unchanged — only share-of-pool reallocates.
     s = get_settings()
     perf_fee_pct = float(s.custody_perf_fee_pct)
-    treasury_user_id = None  # no on-chain treasury user yet — fees just accumulate as PerformanceFee rows
-    for wallet in db.query(ClientWallet).filter(ClientWallet.shares > 0).all():
+    treasury_wallet = _get_or_create_treasury_wallet(db)
+    total_fee_shares = 0.0
+    client_wallets = (
+        db.query(ClientWallet)
+        .filter(ClientWallet.shares > 0)
+        .filter(ClientWallet.user_id != treasury_wallet.user_id)
+        .all()
+    )
+    for wallet in client_wallets:
+        old_hwm = float(wallet.hwm_share_price)
         fee_shares, fee_usdt, new_hwm = shares_math.performance_fee_shares(
             user_shares=float(wallet.shares),
             share_price_now=new_price,
-            hwm_share_price=float(wallet.hwm_share_price),
+            hwm_share_price=old_hwm,
             perf_fee_pct=perf_fee_pct,
         )
         if fee_shares > 0:
@@ -306,19 +376,25 @@ def nav_snapshot(
             wallet.last_fee_at = datetime.utcnow()
             wallet.balance_usdt = float(wallet.shares) * new_price
             db.add(wallet)
+            total_fee_shares += fee_shares
             db.add(PerformanceFee(
                 user_id=wallet.user_id,
                 kind="performance",
-                hwm_before=new_hwm,  # not perfectly accurate; we don't track pre-update HWM separately
+                hwm_before=old_hwm,
                 hwm_after=new_hwm,
                 share_price=new_price,
                 fee_shares=fee_shares,
                 fee_usdt_equiv=fee_usdt,
             ))
+    if total_fee_shares > 0:
+        treasury_wallet.shares = float(treasury_wallet.shares) + total_fee_shares
+        treasury_wallet.balance_usdt = float(treasury_wallet.shares) * new_price
+        db.add(treasury_wallet)
     _audit(db, None, actor.id, "custody_nav_snapshot", {
         "aum_usdt": float(payload.aum_usdt),
         "total_shares": total_shares,
         "share_price": new_price,
+        "fee_shares_to_treasury": total_fee_shares,
         "note": payload.note,
     })
     db.commit()

@@ -13,6 +13,7 @@
       <h1><img src="/assets/brand/mark.svg" alt="" width="24" height="24"/> SignalX</h1>
       <nav>
         <a href="/app.html" class="active">Overview</a>
+        <a href="#wallet" data-tab="wallet">Wallet</a>
         <a href="#subs" data-tab="subs">Subscriptions</a>
         <a href="#signals" data-tab="signals">Signal feed</a>
         <a href="#referral" data-tab="referral">Refer & earn</a>
@@ -82,6 +83,63 @@
           <div class="kpi"><div class="label">Visible to your tier</div><div class="value" id="kpi-fil-visible">—</div></div>
           <div class="kpi"><div class="label">Avg signal score</div><div class="value" id="kpi-fil-score">—</div></div>
           <div class="kpi"><div class="label">Avg fake-risk</div><div class="value" id="kpi-fil-risk">—</div></div>
+        </div>
+      </section>
+
+      <!-- Wallet (managed-pool custody). Hidden by default; surfaces
+           only when /wallet/me responds 200 and the
+           CUSTODY_LIVE_DEPOSITS_ENABLED feature flag is on. -->
+      <section id="wallet-section" class="panel">
+        <h3 style="display:flex;justify-content:space-between;align-items:center">
+          Wallet
+          <a href="/legal/disclosures.html#custody" target="_blank" rel="noopener" class="muted" style="font-size:12px">Custody disclosures →</a>
+        </h3>
+        <div class="kpi-grid" style="margin-bottom:14px">
+          <div class="kpi"><div class="label">Equity (USDT)</div><div class="value" id="w-equity">—</div></div>
+          <div class="kpi"><div class="label">Shares</div><div class="value" id="w-shares" style="font-size:18px">—</div></div>
+          <div class="kpi"><div class="label">Share price</div><div class="value" id="w-price" style="font-size:18px">—</div></div>
+          <div class="kpi"><div class="label">All-time P&amp;L</div><div class="value" id="w-pnl" style="font-size:18px">—</div></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+          <div>
+            <h4 style="margin-bottom:8px">Deposit USDT</h4>
+            <p class="muted" style="font-size:12px;margin-bottom:8px">
+              Send USDT only on the matching chain. Wrong-chain transfers are <strong>unrecoverable</strong>.
+            </p>
+            <select id="w-deposit-chain" style="width:100%;margin-bottom:8px">
+              <option value="trc20">USDT-TRC20 (Tron) · ~$1 fee</option>
+              <option value="ton">USDT-TON · ~$0.01 fee</option>
+              <option value="sol">USDT-Solana · ~$0.0001 fee</option>
+              <option value="bsc">USDT-BSC · ~$0.10 fee</option>
+              <option value="erc20">USDT-ERC20 (Ethereum) · ~$5–30 fee</option>
+            </select>
+            <button class="btn btn-primary" onclick="loadDepositAddr()" style="width:100%">Show deposit address</button>
+            <div id="w-deposit-addr" style="margin-top:10px"></div>
+          </div>
+          <div>
+            <h4 style="margin-bottom:8px">Withdraw USDT</h4>
+            <p class="muted" style="font-size:12px;margin-bottom:8px">
+              24h cooldown after each deposit. Operator review &amp; AML check before send.
+            </p>
+            <select id="w-withdraw-chain" style="width:100%;margin-bottom:8px">
+              <option value="trc20">TRC20</option>
+              <option value="ton">TON</option>
+              <option value="sol">Solana</option>
+              <option value="bsc">BSC</option>
+              <option value="erc20">ERC20</option>
+            </select>
+            <input id="w-withdraw-addr" placeholder="Destination USDT address" style="width:100%;margin-bottom:8px" />
+            <input id="w-withdraw-amt" placeholder="Amount (USDT)" type="number" min="10" step="0.01" style="width:100%;margin-bottom:8px" />
+            <button class="btn" onclick="submitWithdraw()" style="width:100%">Request withdrawal</button>
+            <div id="w-withdraw-result" style="margin-top:8px"></div>
+          </div>
+        </div>
+        <div style="margin-top:14px">
+          <h4 style="margin-bottom:6px">Recent activity</h4>
+          <table>
+            <thead><tr><th>When</th><th>Kind</th><th>Chain</th><th>Amount</th><th>Status</th><th>TX</th></tr></thead>
+            <tbody id="w-activity"><tr><td colspan="6" class="empty">No activity yet.</td></tr></tbody>
+          </table>
         </div>
       </section>
 
@@ -508,6 +566,105 @@
     }
     window.runSizer = runSizer;
 
+    // ─────────────────────── Wallet (managed-pool) ─────────────────────── //
+
+    function fmtUsdt(n) {
+      if (n === null || n === undefined || Number.isNaN(n)) return '—';
+      return Number(n).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    }
+
+    async function loadWallet() {
+      const sec = document.getElementById('wallet-section');
+      try {
+        const w = await SX.api('/wallet/me');
+        sec.style.display = 'block';
+        document.getElementById('w-equity').textContent = fmtUsdt(w.equity_usdt);
+        document.getElementById('w-shares').textContent = fmtUsdt(w.shares);
+        document.getElementById('w-price').textContent = '$' + fmtUsdt(w.share_price_usdt);
+        const pnl = document.getElementById('w-pnl');
+        const pv = w.all_time_pnl_usdt || 0;
+        pnl.textContent = (pv >= 0 ? '+$' : '−$') + fmtUsdt(Math.abs(pv));
+        pnl.style.color = pv >= 0 ? 'var(--accent)' : 'var(--danger)';
+        await loadWalletActivity();
+      } catch (e) {
+        // Endpoint can return 401 for anonymous (handled by SX.api) — leave hidden in that case.
+        if (e && e.message && /503/.test(e.message)) sec.style.display = 'block';
+      }
+    }
+
+    async function loadWalletActivity() {
+      const tbody = document.getElementById('w-activity');
+      try {
+        const [d, w] = await Promise.all([
+          SX.api('/wallet/deposits').catch(() => ({items: []})),
+          SX.api('/wallet/withdrawals').catch(() => ({items: []})),
+        ]);
+        const rows = [
+          ...(d.items || []).map(r => ({
+            ts: r.credited_at || r.created_at, kind: 'Deposit',
+            chain: r.chain, amount: r.amount_usdt, status: r.credited ? 'credited' : 'pending', tx: r.tx_hash,
+          })),
+          ...(w.items || []).map(r => ({
+            ts: r.sent_at || r.approved_at || r.created_at, kind: 'Withdraw',
+            chain: r.chain, amount: -r.amount_usdt, status: r.status, tx: r.tx_hash || '',
+          })),
+        ].sort((a, b) => (b.ts || '').localeCompare(a.ts || '')).slice(0, 20);
+        if (rows.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="6" class="empty">No activity yet.</td></tr>`;
+          return;
+        }
+        tbody.innerHTML = rows.map(r => `<tr>
+          <td>${(r.ts || '').slice(0, 16).replace('T', ' ')}</td>
+          <td>${r.kind}</td>
+          <td>${r.chain}</td>
+          <td style="color:${r.amount >= 0 ? 'var(--accent)' : 'var(--danger)'}">${r.amount >= 0 ? '+' : '−'}${fmtUsdt(Math.abs(r.amount))}</td>
+          <td><span class="pill">${r.status}</span></td>
+          <td>${r.tx ? `<code>${r.tx.slice(0, 10)}…</code>` : '—'}</td>
+        </tr>`).join('');
+      } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="6" class="empty">${e.message || 'Failed to load activity'}</td></tr>`;
+      }
+    }
+
+    async function loadDepositAddr() {
+      const chain = document.getElementById('w-deposit-chain').value;
+      const out = document.getElementById('w-deposit-addr');
+      out.innerHTML = 'Loading…';
+      try {
+        const r = await SX.api('/wallet/deposit-address', {method: 'POST', body: JSON.stringify({chain})});
+        out.innerHTML = `<div class="panel" style="background:var(--surface-2);padding:10px">
+          <div class="muted" style="font-size:11px">Chain: <strong>${r.chain.toUpperCase()}</strong> · Min: ${r.min_amount_usdt} USDT</div>
+          <div style="margin:6px 0;word-break:break-all"><code>${r.address}</code></div>
+          ${r.memo ? `<div class="muted" style="font-size:11px">Memo / tag: <code>${r.memo}</code> <strong>(REQUIRED — tx without memo cannot be credited)</strong></div>` : ''}
+          <div class="muted" style="font-size:11px;margin-top:6px">${r.warning}</div>
+        </div>`;
+      } catch (e) {
+        out.innerHTML = `<div style="color:var(--danger)">${e.message || 'Failed'}</div>`;
+      }
+    }
+    window.loadDepositAddr = loadDepositAddr;
+
+    async function submitWithdraw() {
+      const chain = document.getElementById('w-withdraw-chain').value;
+      const addr = document.getElementById('w-withdraw-addr').value.trim();
+      const amt = parseFloat(document.getElementById('w-withdraw-amt').value);
+      const out = document.getElementById('w-withdraw-result');
+      if (!addr || !(amt > 0)) {
+        out.innerHTML = `<div style="color:var(--warn)">Enter destination and amount.</div>`;
+        return;
+      }
+      try {
+        const r = await SX.api('/wallet/withdraw', {method: 'POST', body: JSON.stringify({
+          chain, destination_address: addr, amount_usdt: amt,
+        })});
+        out.innerHTML = `<div style="color:var(--accent)">Queued #${r.withdrawal_id} — ${fmtUsdt(r.amount_usdt)} USDT, ${fmtUsdt(r.shares_burned)} shares burned. Operator will review and send.</div>`;
+        await loadWallet();
+      } catch (e) {
+        out.innerHTML = `<div style="color:var(--danger)">${e.message || 'Failed'}</div>`;
+      }
+    }
+    window.submitWithdraw = submitWithdraw;
+
     async function refresh() {
       await loadSubs();
       loadSizerSubs();
@@ -518,6 +675,7 @@
       await loadRiskAck();
       await loadTwoFa();
       await loadFilterRail();
+      await loadWallet();
     }
 
     (async () => {
