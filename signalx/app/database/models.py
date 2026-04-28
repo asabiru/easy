@@ -126,6 +126,59 @@ class User(Base):
     role = Column(String(16), nullable=False, default="client", index=True)
     full_name = Column(String(128), nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
+    # Geo captured at registration. ISO 3166-1 alpha-2.
+    country = Column(String(2), nullable=True, index=True)
+    sub_region = Column(String(8), nullable=True)
+
+
+class KycProfile(Base):
+    """Per-user KYC state. Created lazily on first /kyc/start call.
+
+    `status` lifecycle:
+        unverified  ── /kyc/start ──>  submitted
+        submitted   ── webhook    ──>  pending_review | approved | rejected
+        approved    (cached; user can hit /kyc/refresh to re-verify after expiry)
+        rejected    (terminal; admin override required to retry)
+
+    `level` is the Sumsub workflow level (basic-kyc-level, enhanced-dd, etc.).
+    """
+
+    __tablename__ = "kyc_profiles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, unique=True, index=True)
+    provider = Column(String(32), nullable=False, default="mock")
+    applicant_id = Column(String(64), nullable=True, index=True)
+    status = Column(String(24), nullable=False, default="unverified", index=True)
+    level = Column(String(32), nullable=False, default="basic-kyc-level")
+    sanctions_hit = Column(Boolean, nullable=False, default=False)
+    pep_hit = Column(Boolean, nullable=False, default=False)
+    sof_required = Column(Boolean, nullable=False, default=False)
+    document_country = Column(String(2), nullable=True)
+    reject_reasons = Column(Text, nullable=True)  # JSON array
+    last_event_id = Column(String(64), nullable=True, index=True)  # idempotency
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    verdict_at = Column(DateTime, nullable=True)
+
+
+class AmlEvent(Base):
+    """Append-only AML / compliance audit-log.
+
+    Every state-change touching KYC, sanctions screening, geo-block,
+    deposit thresholds, or compliance overrides writes a row here.
+    Read-only from the application; only the compliance-officer
+    dashboard renders it. Required for FATF Recommendation 11.
+    """
+
+    __tablename__ = "aml_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    actor_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # admin / compliance officer
+    kind = Column(String(32), nullable=False, index=True)  # kyc_start, kyc_verdict, sanctions_hit, geo_block, override, sof_request
+    detail = Column(Text, nullable=True)  # JSON serialised payload
 
 
 class InvestorLead(Base):

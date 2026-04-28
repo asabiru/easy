@@ -75,6 +75,24 @@ class Settings(BaseSettings):
     autotrade_default_max_position_pct: float = 0.10
     autotrade_default_daily_loss_limit_pct: float = 0.05
 
+    # KYC / AML
+    # `kyc_provider` selects the adapter in app.kyc.registry.
+    # `mock` (default) is a no-op fallback for tests + local dev — DO NOT
+    # use in any environment with real users.
+    # `sumsub` requires SUMSUB_APP_TOKEN + SUMSUB_SECRET_KEY; falls back
+    # to mock if either is missing (logs a loud error).
+    kyc_provider: Literal["mock", "sumsub"] = "mock"
+    kyc_required: bool = False  # When True, /autotrade/* + /payments/* refuse non-approved users.
+    sumsub_app_token: str = ""
+    sumsub_secret_key: str = ""
+    sumsub_level_name: str = "basic-kyc-level"
+
+    # TON / Telegram Wallet payments
+    ton_wallet_pay_api_key: str = ""  # https://pay.wallet.tg merchant key
+    ton_wallet_pay_webhook_secret: str = ""
+    ton_treasury_address: str = ""  # Mainnet UQ... address that receives subscription/vault deposits
+    ton_network: Literal["mainnet", "testnet"] = "testnet"
+
     # Data files
     data_dir: Path = Field(default_factory=lambda: DATA_DIR)
 

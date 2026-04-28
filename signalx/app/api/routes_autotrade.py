@@ -113,6 +113,25 @@ def go_live(
 ) -> dict[str, Any]:
     s = get_settings()
     sub = _own_or_admin(db, sub_id, user)
+    # KYC gate: live trading dispatches real orders against a real
+    # exchange account, so the subscription owner MUST be KYC-approved.
+    # When `kyc_required=False` (early MVP / mock provider), this is a
+    # no-op so existing flows still work. Admin role bypasses (admins
+    # acting on behalf of users go through the compliance dashboard).
+    if s.kyc_required and user.role != "admin":
+        from app.database.models import KycProfile  # local: avoid circular
+        profile = (
+            db.query(KycProfile).filter(KycProfile.user_id == user.id).first()
+        )
+        if profile is None or profile.status != "approved":
+            raise HTTPException(
+                status_code=403,
+                detail="KYC verification required before live trading. POST /kyc/start.",
+            )
+        if profile.sanctions_hit:
+            raise HTTPException(
+                status_code=403, detail="account blocked by AML screening",
+            )
     if not s.enable_autotrade:
         raise HTTPException(
             status_code=409,
