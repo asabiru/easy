@@ -148,6 +148,30 @@ Sentinel-routed because memo and address didn't match a known user.
 * Audit-log search: any `custody_deposit_webhook_credited` events
   during the suspected leak window — verify each TX on-chain is real.
 
+### Signature-failure spike (`webhook_signature_failures_1h ≥ 3`)
+
+Treasury Health surfaces this in the detail line as `N sig-fail/1h`.
+Thresholds:
+
+* `≥ 3` in last 1h → `warn`. Most likely cause: a provider rotated
+  their secret and ours is stale. One-step fix:
+  ```
+  flyctl secrets set CUSTODY_<chain>_WEBHOOK_SECRET=<new>
+  ```
+* `≥ 10` in last 1h → `critical`. Treat as **active brute-force
+  probing**. Steps:
+  1. `GET /admin/treasury/audit-log?kind=custody_deposit_webhook_signature_invalid&limit=50`
+     to inspect source IPs and chains targeted.
+  2. If a single IP dominates: rate-limit (60/min/IP) is already
+     bounding it, but if the volume is >100/h consider a `flyctl ips`
+     deny rule or a Cloudflare WAF rule on the source.
+  3. Rotate the secret on the targeted chain regardless — even though
+     the rate-limit caps the search, eliminating the search space is
+     cheap insurance.
+  4. After rotation, the audit log should go quiet within ~5 min;
+     if not, the attacker also has the new secret → escalate to
+     security on-call.
+
 ---
 
 ## Compliance / regulator submissions
@@ -188,3 +212,4 @@ so the audit log filter works:
 | `custody_withdraw_sent` | operator sent on-chain |
 | `custody_withdraw_cancelled` | operator cancelled, shares re-credited |
 | `custody_nav_snapshot` | NAV recomputed, perf fees accrued |
+| `custody_deposit_webhook_signature_invalid` | webhook 4xx — bad HMAC / Bearer / replay |
