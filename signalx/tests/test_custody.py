@@ -720,3 +720,61 @@ def test_treasury_health_critical_on_negative_balance(client_with_db):
     body = r.json()
     assert body["negative_balances"] == 1
     assert body["overall_status"] == "critical"
+
+
+# ───────────────────────── CSV exports ────────────────────────────── #
+
+
+def test_audit_log_csv_export(client_with_db):
+    cl, db = client_with_db
+    _register(cl, "client@example.com")
+    cl.headers.pop("Authorization", None); cl.cookies.clear()
+    _admin_login(cl, db)
+    from app.database.models import User
+    cu = db.query(User).filter(User.email == "client@example.com").first()
+    cl.post("/admin/treasury/credit-deposit", json={
+        "user_id": cu.id, "chain": "trc20", "tx_hash": "TX-CSV",
+        "amount_usdt": 75.0,
+    })
+
+    r = cl.get("/admin/treasury/audit-log.csv")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/csv")
+    assert "attachment" in r.headers["content-disposition"]
+    body = r.text
+    lines = [ln for ln in body.replace("\r", "").split("\n") if ln]
+    assert lines[0].split(",")[:6] == ["id", "created_at", "kind", "user_id", "actor_id", "detail"]
+    assert "custody_deposit_credited" in body
+    assert "TX-CSV" in body
+
+
+def test_wallets_csv_excludes_internal_users(client_with_db):
+    cl, db = client_with_db
+    _register(cl, "client@example.com")
+    cl.headers.pop("Authorization", None); cl.cookies.clear()
+    _admin_login(cl, db)
+    from app.database.models import ClientWallet, User
+    cu = db.query(User).filter(User.email == "client@example.com").first()
+    # Seed sentinel + treasury users with wallets — they MUST NOT appear in CSV.
+    sentinel = User(
+        email="unassigned@signalx.internal", password_hash="!d", role="admin", is_active=False,
+    )
+    treasury = User(
+        email="treasury@signalx.internal", password_hash="!d", role="admin", is_active=False,
+    )
+    db.add_all([sentinel, treasury]); db.flush()
+    db.add_all([
+        ClientWallet(user_id=cu.id, shares=100.0, balance_usdt=100.0, hwm_share_price=1.0),
+        ClientWallet(user_id=sentinel.id, shares=10.0, balance_usdt=10.0, hwm_share_price=1.0),
+        ClientWallet(user_id=treasury.id, shares=5.0, balance_usdt=5.0, hwm_share_price=1.0),
+    ])
+    db.commit()
+
+    r = cl.get("/admin/treasury/wallets.csv")
+    assert r.status_code == 200
+    body = r.text
+    lines = [ln for ln in body.replace("\r", "").split("\n") if ln]
+    # Header + 1 client row only.
+    assert len(lines) == 2
+    assert "user_id" in lines[0]
+    assert lines[1].startswith(f"{cu.id},")

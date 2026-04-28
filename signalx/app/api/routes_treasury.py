@@ -29,7 +29,11 @@ import logging
 from datetime import datetime
 from typing import Any
 
+import csv
+import io
+
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -804,3 +808,101 @@ def audit_log(
             for r in rows
         ],
     }
+
+
+# ───────────────── CSV exports (compliance / reconcile) ──────────── #
+
+
+def _csv_response(rows, header, filename: str) -> StreamingResponse:
+    """Stream a CSV body with the right headers + RFC-4180-ish quoting.
+
+    `rows` is an iterable of tuples in the same order as `header`.
+    Empty fields render as empty strings (not "None"). Datetime values
+    are ISO-formatted upstream — this helper just stringifies."""
+    buf = io.StringIO()
+    w = csv.writer(buf, quoting=csv.QUOTE_MINIMAL)
+    w.writerow(header)
+    for r in rows:
+        w.writerow(["" if v is None else v for v in r])
+    buf.seek(0)
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename=\"{filename}\""},
+    )
+
+
+@router.get("/admin/treasury/audit-log.csv")
+def audit_log_csv(
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_role("admin", "manager")),
+    limit: int = 1000,
+    kind: str | None = None,
+) -> StreamingResponse:
+    """CSV mirror of /admin/treasury/audit-log.
+
+    Compliance / regulator submissions usually require a flat file —
+    this avoids the operator having to JSON→CSV-pivot manually. Same
+    filter knobs as the JSON endpoint; clamp at 5000 rows since CSVs
+    are typically opened in Excel which chokes above ~1M rows but is
+    fine here. `kind` filter accepts the exact event-kind string."""
+    q = db.query(AmlEvent).filter(AmlEvent.kind.like("custody_%"))
+    if kind:
+        q = q.filter(AmlEvent.kind == kind)
+    rows = q.order_by(AmlEvent.id.desc()).limit(max(1, min(limit, 5000))).all()
+    return _csv_response(
+        (
+            (
+                r.id,
+                r.created_at.isoformat() if r.created_at else "",
+                r.kind,
+                r.user_id if r.user_id is not None else "",
+                r.actor_id if r.actor_id is not None else "",
+                (r.detail or "").replace("\r", " ").replace("\n", " "),
+            )
+            for r in rows
+        ),
+        ("id", "created_at", "kind", "user_id", "actor_id", "detail"),
+        f"signalx-custody-audit-{datetime.utcnow().strftime('%Y%m%d')}.csv",
+    )
+
+
+@router.get("/admin/treasury/wallets.csv")
+def wallets_csv(
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_role("admin", "manager")),
+) -> StreamingResponse:
+    """All client wallets — for daily reconciliation against the
+    on-chain treasury balances + exchange account balances. Excludes
+    the internal sentinel/treasury users (no client equity to report
+    on those rows)."""
+    internal = (
+        db.query(User)
+        .filter(User.email.in_((TREASURY_INTERNAL_EMAIL, "unassigned@signalx.internal")))
+        .all()
+    )
+    internal_ids = {u.id for u in internal}
+    wallets = db.query(ClientWallet).all()
+    sp = _latest_share_price(db)
+    return _csv_response(
+        (
+            (
+                w.user_id,
+                float(w.shares or 0.0),
+                float(w.balance_usdt or 0.0),
+                float(w.hwm_share_price or 1.0),
+                float(w.lifetime_deposit_usdt or 0.0),
+                float(w.lifetime_withdraw_usdt or 0.0),
+                float(w.shares or 0.0) * sp,
+                w.last_fee_at.isoformat() if w.last_fee_at else "",
+            )
+            for w in wallets
+            if w.user_id not in internal_ids
+        ),
+        (
+            "user_id", "shares", "balance_usdt", "hwm_share_price",
+            "lifetime_deposit_usdt", "lifetime_withdraw_usdt",
+            "current_equity_usdt", "last_fee_at",
+        ),
+        f"signalx-custody-wallets-{datetime.utcnow().strftime('%Y%m%d')}.csv",
+    )

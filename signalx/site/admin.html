@@ -187,8 +187,12 @@
           </table>
         </div>
         <div class="panel" style="margin-top:16px">
-          <h3 style="display:flex;justify-content:space-between;align-items:center">
+          <h3 style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
             Audit log <span class="muted" style="font-size:11px">last 100 custody_* events</span>
+            <span style="display:flex;gap:6px;align-items:center;margin-left:auto">
+              <a class="btn btn-ghost" id="audit-csv-link" href="/admin/treasury/audit-log.csv" target="_blank" rel="noopener" style="font-size:12px;padding:4px 8px">Export CSV</a>
+              <a class="btn btn-ghost" href="/admin/treasury/wallets.csv" target="_blank" rel="noopener" style="font-size:12px;padding:4px 8px">Wallets CSV</a>
+            </span>
             <select id="audit-kind-filter" onchange="loadTreasuryAudit()" style="font-size:12px;padding:4px 8px">
               <option value="">All kinds</option>
               <option value="custody_deposit_credited">deposit_credited (manual)</option>
