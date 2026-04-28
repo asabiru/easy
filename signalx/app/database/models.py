@@ -112,3 +112,17 @@ class SignalResult(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     signal = relationship("Signal", back_populates="result")
+
+
+class SupportTicket(Base):
+    __tablename__ = "support_tickets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    email = Column(String(256), nullable=True, index=True)
+    category = Column(String(32), nullable=False, index=True)  # bug / billing / feature / false_positive / other
+    message = Column(Text, nullable=False)
+    signal_id = Column(Integer, ForeignKey("signals.id", ondelete="SET NULL"), nullable=True, index=True)
+    status = Column(String(16), default="open", nullable=False, index=True)  # open / triaged / resolved
+    response = Column(Text, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
