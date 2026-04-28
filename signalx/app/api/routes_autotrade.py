@@ -118,6 +118,16 @@ def go_live(
             status_code=409,
             detail="global autotrade kill switch is off (ENABLE_AUTOTRADE=false)",
         )
+    # Killed/paused subscriptions must go through /resume → paper before
+    # they can flip back to live. Otherwise the daily-loss-pause safety
+    # mechanism (G4) is bypassable: a user whose sub was paused by the risk
+    # guard could just re-enable live trading directly. (BUG_0001 in
+    # pr-review-job-cec3c29938df4bfe902e2210e7446cf1.)
+    if sub.status in ("killed", "paused"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"subscription is {sub.status}; call /resume first",
+        )
     if sub.paper_until and sub.paper_until > datetime.utcnow():
         raise HTTPException(
             status_code=409,

@@ -472,3 +472,69 @@ def test_max_position_cap_actually_rejects_oversized_orders(db_session):
     # min_signal_score is 50 so it's eligible; sizing should be 5% notional
     expected_notional_half = 10000.0 * 0.10 * 0.50  # 500
     assert abs(o.qty * o.entry_price - expected_notional_half) < 1.0
+
+
+def test_go_live_refuses_killed_or_paused_subscriptions(client_with_db, monkeypatch):
+    """Regression for BUG_pr-review-job-cec3c29938df4bfe902e2210e7446cf1_0001.
+
+    Killed/paused subs must not be promotable directly to live; the
+    /resume flow is the only path back so the daily-loss-pause guardrail
+    (G4) cannot be bypassed."""
+    from datetime import datetime
+    from app.database.models import AutoTradeSubscription, User
+    from app.auth.security import hash_password
+
+    monkeypatch.setenv("ENABLE_AUTOTRADE", "true")
+    from app.config.settings import get_settings
+    get_settings.cache_clear()
+
+    client, db = client_with_db
+    db.add(User(email="u@example.com", password_hash=hash_password("p"),
+                role="client", is_active=True))
+    db.commit()
+    user = db.query(User).filter(User.email == "u@example.com").first()
+    client.post("/auth/login", json={"email": "u@example.com", "password": "p"})
+
+    def _make_sub(status: str) -> int:
+        sub = AutoTradeSubscription(
+            email="u@example.com",
+            user_id=user.id,
+            tier="auto_lite",
+            exchange_id="bybit",
+            api_key_encrypted="x" * 16,
+            api_secret_encrypted="x" * 16,
+            status=status,
+            live_trading_enabled=False,
+            paper_until=datetime(2020, 1, 1),  # past — won't block
+        )
+        db.add(sub)
+        db.commit()
+        db.refresh(sub)
+        return sub.id
+
+    killed_id = _make_sub("killed")
+    paused_id = _make_sub("paused")
+
+    r = client.post(f"/autotrade/{killed_id}/go-live")
+    assert r.status_code == 409, r.text
+    assert "killed" in r.json()["detail"]
+    assert "/resume" in r.json()["detail"]
+
+    r = client.post(f"/autotrade/{paused_id}/go-live")
+    assert r.status_code == 409
+    assert "paused" in r.json()["detail"]
+
+    # Confirm DB state was not mutated
+    db.refresh(db.query(AutoTradeSubscription).filter(AutoTradeSubscription.id == killed_id).first())
+    db.refresh(db.query(AutoTradeSubscription).filter(AutoTradeSubscription.id == paused_id).first())
+    assert db.query(AutoTradeSubscription).filter(AutoTradeSubscription.id == killed_id).first().status == "killed"
+    assert db.query(AutoTradeSubscription).filter(AutoTradeSubscription.id == paused_id).first().status == "paused"
+
+    # Resume → paper, THEN go-live works
+    r = client.post(f"/autotrade/{killed_id}/resume")
+    assert r.status_code in (200, 409)  # resume policy may vary; key check is below
+    # Make a paper sub directly and verify go-live succeeds
+    paper_id = _make_sub("paper")
+    r = client.post(f"/autotrade/{paper_id}/go-live")
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "live"
