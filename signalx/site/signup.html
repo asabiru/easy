@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>New subscription · SignalX</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/panel.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <h1><span class="dot">S</span> SignalX</h1>
+      <nav><a href="/app.html">← Back to dashboard</a><a href="/" target="_blank">↗ Public site</a></nav>
+    </aside>
+    <main class="main">
+      <div class="topbar"><h2>Start an auto-trade subscription</h2></div>
+      <div class="alert alert-info">
+        Your subscription will start in <strong>paper mode for 7 days</strong>. The bot uses a <strong>trade-only</strong> API key — never enable withdraw permission. We never have access to your funds.
+      </div>
+      <form id="signup-form" class="panel" style="max-width:560px;display:grid;gap:12px">
+        <div>
+          <div class="muted" style="font-size:11px;text-transform:uppercase;margin-bottom:4px">Tier</div>
+          <select name="tier" required>
+            <option value="manual_plus">Manual+ — $99/mo</option>
+            <option value="auto_lite">Auto-Lite — $249/mo</option>
+            <option value="auto_pro" selected>Auto-Pro — $499/mo</option>
+            <option value="vip">VIP — $999/mo + 15% perf</option>
+          </select>
+        </div>
+        <div>
+          <div class="muted" style="font-size:11px;text-transform:uppercase;margin-bottom:4px">Email</div>
+          <input name="email" type="email" required />
+        </div>
+        <div>
+          <div class="muted" style="font-size:11px;text-transform:uppercase;margin-bottom:4px">Exchange</div>
+          <select name="exchange_id">
+            <option value="bybit">Bybit</option>
+            <option value="binance">Binance</option>
+            <option value="okx">OKX</option>
+            <option value="backpack">Backpack</option>
+          </select>
+        </div>
+        <div>
+          <div class="muted" style="font-size:11px;text-transform:uppercase;margin-bottom:4px">API key (trade-only, no withdraw)</div>
+          <input name="api_key" required minlength="8" placeholder="trade-only API key" />
+        </div>
+        <div>
+          <div class="muted" style="font-size:11px;text-transform:uppercase;margin-bottom:4px">API secret</div>
+          <input name="api_secret" required type="password" minlength="8" placeholder="API secret" />
+        </div>
+        <div>
+          <div class="muted" style="font-size:11px;text-transform:uppercase;margin-bottom:4px">API passphrase (OKX only — leave blank otherwise)</div>
+          <input name="api_passphrase" type="password" />
+        </div>
+        <hr/>
+        <div class="row">
+          <div style="flex:1">
+            <div class="muted" style="font-size:11px;text-transform:uppercase;margin-bottom:4px">Max position %</div>
+            <input name="max_position_pct" type="number" step="0.01" min="0" max="1" placeholder="0.10" />
+          </div>
+          <div style="flex:1">
+            <div class="muted" style="font-size:11px;text-transform:uppercase;margin-bottom:4px">Daily loss limit %</div>
+            <input name="daily_loss_limit_pct" type="number" step="0.01" min="0" max="1" placeholder="0.05" />
+          </div>
+        </div>
+        <div class="row">
+          <div style="flex:1">
+            <div class="muted" style="font-size:11px;text-transform:uppercase;margin-bottom:4px">Min signal score</div>
+            <input name="min_signal_score" type="number" min="0" max="100" placeholder="60" />
+          </div>
+          <div style="flex:1">
+            <div class="muted" style="font-size:11px;text-transform:uppercase;margin-bottom:4px">Max fake risk</div>
+            <input name="max_fake_risk" type="number" min="0" max="100" placeholder="49" />
+          </div>
+        </div>
+        <button class="btn-primary" type="submit" style="padding:10px;margin-top:6px">Create subscription</button>
+        <div id="result" class="muted"></div>
+      </form>
+    </main>
+  </div>
+  <script src="/assets/config.js"></script>
+  <script src="/assets/panel.js"></script>
+  <script>
+    // Authentication is required: /autotrade/subscribe stores encrypted
+    // exchange API credentials and ties them to the calling user's id.
+    // Redirect anonymous visitors to /login.html with return path so they
+    // come back here once authed.
+    if (!localStorage.getItem('signalx_token')) {
+      const ret = encodeURIComponent('/signup.html' + location.search);
+      window.location.href = '/login.html?return=' + ret;
+    }
+
+    // Pre-fill email from the logged-in user if /auth/me returns it,
+    // and lock the field so the subscription is created against the same
+    // identity the backend authorisation will see.
+    SX.me().then(u => {
+      if (u && u.email) {
+        const el = document.querySelector('[name="email"]');
+        el.value = u.email;
+        el.readOnly = true;
+      }
+    }).catch(() => {});
+
+    const form = document.getElementById('signup-form');
+    const params = new URLSearchParams(location.search);
+    if (params.get('tier')) form.querySelector('[name="tier"]').value = params.get('tier');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(form);
+      const payload = {};
+      for (const [k, v] of fd.entries()) {
+        if (v === '' || v === null) continue;
+        if (['max_position_pct','daily_loss_limit_pct'].includes(k)) payload[k] = parseFloat(v);
+        else if (['min_signal_score','max_fake_risk'].includes(k)) payload[k] = parseInt(v, 10);
+        else payload[k] = v;
+      }
+      const out = document.getElementById('result');
+      out.textContent = 'Creating…';
+      try {
+        const r = await SX.api('/autotrade/subscribe', {method: 'POST', body: JSON.stringify(payload)});
+        out.textContent = `Subscription #${r.subscription_id} created. Status: ${r.status}. Paper until ${r.paper_until}. Redirecting to dashboard…`;
+        out.style.color = 'var(--accent)';
+        setTimeout(() => location.href = '/app.html', 1200);
+      } catch (ex) {
+        out.textContent = ex.message; out.style.color = 'var(--danger)';
+      }
+    });
+  </script>
+</body>
+</html>

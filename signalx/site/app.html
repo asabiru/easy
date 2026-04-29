@@ -1,0 +1,690 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dashboard · SignalX</title>
+  <link rel="icon" type="image/svg+xml" href="/assets/brand/mark.svg" />
+  <link rel="stylesheet" href="/assets/panel.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <h1><img src="/assets/brand/mark.svg" alt="" width="24" height="24"/> SignalX</h1>
+      <nav>
+        <a href="/app.html" class="active">Overview</a>
+        <a href="#wallet" data-tab="wallet">Wallet</a>
+        <a href="#subs" data-tab="subs">Subscriptions</a>
+        <a href="#signals" data-tab="signals">Signal feed</a>
+        <a href="#referral" data-tab="referral">Refer & earn</a>
+        <a href="#trades" data-tab="trades">Recent trades</a>
+        <a href="/" target="_blank">↗ Public site</a>
+      </nav>
+      <div class="footer">
+        <div id="me-email" class="muted"></div>
+        <div style="margin-top:6px"><span id="me-role" class="role-pill">client</span></div>
+        <button onclick="SX.logout()" style="margin-top:10px;width:100%">Sign out</button>
+      </div>
+    </aside>
+    <main class="main">
+      <div class="topbar">
+        <h2 id="page-title">Welcome back</h2>
+        <div class="right">
+          <span class="muted">Auto-refresh every 10s</span>
+        </div>
+      </div>
+
+      <div id="alert-area"></div>
+
+      <section id="overview-section">
+        <div class="kpi-grid">
+          <div class="kpi"><div class="label">P&L today</div><div class="value" id="kpi-pnl">—</div></div>
+          <div class="kpi"><div class="label">Trades today</div><div class="value" id="kpi-trades">—</div></div>
+          <div class="kpi"><div class="label">Active subs</div><div class="value" id="kpi-subs">—</div></div>
+          <div class="kpi"><div class="label">Tier</div><div class="value" id="kpi-tier" style="font-size:18px">—</div></div>
+          <div class="kpi"><div class="label">KYC</div><div class="value" id="kpi-kyc" style="font-size:18px">—</div></div>
+        </div>
+      </section>
+
+      <section id="kyc-section" class="panel" style="display:none">
+        <h3>Verification</h3>
+        <p class="muted" id="kyc-explainer" style="margin-bottom:12px"></p>
+        <button id="kyc-start-btn" class="btn btn-primary" onclick="startKyc()">Start verification</button>
+      </section>
+
+      <!-- Compliance: risk-acknowledgement gate. Re-prompts after a
+           material disclosures change (RISK_ACK_VERSION bump). -->
+      <section id="risk-ack-section" class="panel" style="display:none">
+        <h3>Risk acknowledgement required</h3>
+        <p class="muted" style="margin-bottom:12px">
+          Before creating or upgrading any auto-trade subscription you must
+          acknowledge the current <a href="/legal/disclosures.html" target="_blank" rel="noopener">risk disclosures</a>.
+          We re-prompt only when the disclosures change materially.
+        </p>
+        <button id="risk-ack-btn" class="btn btn-primary" onclick="acceptRiskAck()">I have read and accept the disclosures</button>
+      </section>
+
+      <!-- Security: TOTP 2FA enrolment. Required for VIP / Auto-Pro
+           tiers before /autotrade/{id}/go-live. -->
+      <section id="twofa-section" class="panel">
+        <h3>Two-factor authentication</h3>
+        <div id="twofa-body">
+          <div class="skeleton lg"></div>
+        </div>
+      </section>
+
+      <!-- Anti-Fake transparency rail (mirrors the public /signals/filter-stats).
+           Shows clients how much noise we filtered out so they can trust
+           the signal quality vs raw newswire spam. -->
+      <section class="panel">
+        <h3>Filter activity (last 24h)</h3>
+        <div id="filter-rail" class="kpi-grid">
+          <div class="kpi"><div class="label">Filtered</div><div class="value" id="kpi-fil-pct">—</div></div>
+          <div class="kpi"><div class="label">Visible to your tier</div><div class="value" id="kpi-fil-visible">—</div></div>
+          <div class="kpi"><div class="label">Avg signal score</div><div class="value" id="kpi-fil-score">—</div></div>
+          <div class="kpi"><div class="label">Avg fake-risk</div><div class="value" id="kpi-fil-risk">—</div></div>
+        </div>
+      </section>
+
+      <!-- Wallet (managed-pool custody). Hidden by default; surfaces
+           only when /wallet/me responds 200 and the
+           CUSTODY_LIVE_DEPOSITS_ENABLED feature flag is on. -->
+      <section id="wallet-section" class="panel">
+        <h3 style="display:flex;justify-content:space-between;align-items:center">
+          Wallet
+          <a href="/legal/disclosures.html#custody" target="_blank" rel="noopener" class="muted" style="font-size:12px">Custody disclosures →</a>
+        </h3>
+        <div class="kpi-grid" style="margin-bottom:14px">
+          <div class="kpi"><div class="label">Equity (USDT)</div><div class="value" id="w-equity">—</div></div>
+          <div class="kpi"><div class="label">Shares</div><div class="value" id="w-shares" style="font-size:18px">—</div></div>
+          <div class="kpi"><div class="label">Share price</div><div class="value" id="w-price" style="font-size:18px">—</div></div>
+          <div class="kpi"><div class="label">All-time P&amp;L</div><div class="value" id="w-pnl" style="font-size:18px">—</div></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+          <div>
+            <h4 style="margin-bottom:8px">Deposit USDT</h4>
+            <p class="muted" style="font-size:12px;margin-bottom:8px">
+              Send USDT only on the matching chain. Wrong-chain transfers are <strong>unrecoverable</strong>.
+            </p>
+            <select id="w-deposit-chain" style="width:100%;margin-bottom:8px">
+              <option value="trc20">USDT-TRC20 (Tron) · ~$1 fee</option>
+              <option value="ton">USDT-TON · ~$0.01 fee</option>
+              <option value="sol">USDT-Solana · ~$0.0001 fee</option>
+              <option value="bsc">USDT-BSC · ~$0.10 fee</option>
+              <option value="erc20">USDT-ERC20 (Ethereum) · ~$5–30 fee</option>
+            </select>
+            <button class="btn btn-primary" onclick="loadDepositAddr()" style="width:100%">Show deposit address</button>
+            <div id="w-deposit-addr" style="margin-top:10px"></div>
+          </div>
+          <div>
+            <h4 style="margin-bottom:8px">Withdraw USDT</h4>
+            <p class="muted" style="font-size:12px;margin-bottom:8px">
+              24h cooldown after each deposit. Operator review &amp; AML check before send.
+            </p>
+            <select id="w-withdraw-chain" style="width:100%;margin-bottom:8px">
+              <option value="trc20">TRC20</option>
+              <option value="ton">TON</option>
+              <option value="sol">Solana</option>
+              <option value="bsc">BSC</option>
+              <option value="erc20">ERC20</option>
+            </select>
+            <input id="w-withdraw-addr" placeholder="Destination USDT address" style="width:100%;margin-bottom:8px" />
+            <input id="w-withdraw-amt" placeholder="Amount (USDT)" type="number" min="10" step="0.01" style="width:100%;margin-bottom:8px" />
+            <button class="btn" onclick="submitWithdraw()" style="width:100%">Request withdrawal</button>
+            <div id="w-withdraw-result" style="margin-top:8px"></div>
+          </div>
+        </div>
+        <div style="margin-top:14px">
+          <h4 style="margin-bottom:6px">Recent activity</h4>
+          <table>
+            <thead><tr><th>When</th><th>Kind</th><th>Chain</th><th>Amount</th><th>Status</th><th>TX</th></tr></thead>
+            <tbody id="w-activity"><tr><td colspan="6" class="empty">No activity yet.</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="subs-section" class="panel">
+        <h3>My subscriptions</h3>
+        <div style="margin-bottom:12px">
+          <a href="/signup.html" class="btn btn-primary">+ New subscription</a>
+        </div>
+        <table>
+          <thead><tr><th>ID</th><th>Tier</th><th>Exchange</th><th>Status</th><th>Live</th><th>Paper until</th><th>Actions</th></tr></thead>
+          <tbody id="subs-tbody"><tr><td colspan="7" class="empty">Loading…</td></tr></tbody>
+        </table>
+      </section>
+
+      <section id="signals-section" class="panel">
+        <h3 style="display:flex;justify-content:space-between;align-items:center">
+          Live signal feed
+          <input id="signal-filter" placeholder="Filter ticker (e.g. NVDA)" style="max-width:240px" oninput="renderSignals()" />
+        </h3>
+        <div id="signals-list" style="display:grid;gap:10px">
+          <div class="empty">Loading…</div>
+        </div>
+      </section>
+
+      <section id="referral-section" class="panel">
+        <h3>Refer & earn 20% rev-share for 12 months</h3>
+        <div id="referral-body">
+          <div class="skeleton lg"></div><div class="skeleton"></div>
+        </div>
+      </section>
+
+      <!-- Trading-Risk: position-sizing calculator. Pure-math endpoint
+           respects the subscription's max_position_pct and daily-loss
+           budget; the binding cap is surfaced so the trader sees which
+           constraint actually trimmed the size. -->
+      <section id="sizer-section" class="panel">
+        <h3>Position-size calculator</h3>
+        <p class="muted" style="margin:0 0 12px">
+          Pre-trade what-if. Feeds the subscription's risk caps + today's
+          remaining daily-loss budget into a single recommended quantity.
+        </p>
+        <form id="sizer-form" class="grid" style="grid-template-columns:repeat(2,minmax(0,1fr));gap:10px" onsubmit="return runSizer(event)">
+          <div>
+            <label class="muted" style="font-size:11px">Subscription</label>
+            <select id="sizer-sub" required></select>
+          </div>
+          <div>
+            <label class="muted" style="font-size:11px">Side</label>
+            <select id="sizer-side"><option value="long">Long</option><option value="short">Short</option></select>
+          </div>
+          <div>
+            <label class="muted" style="font-size:11px">Equity (USDT)</label>
+            <input id="sizer-equity" type="number" min="1" step="any" value="10000" required />
+          </div>
+          <div>
+            <label class="muted" style="font-size:11px">Risk per trade (%)</label>
+            <input id="sizer-risk" type="number" min="0.1" max="10" step="0.1" value="1" required />
+          </div>
+          <div>
+            <label class="muted" style="font-size:11px">Entry price</label>
+            <input id="sizer-entry" type="number" min="0.0001" step="any" required />
+          </div>
+          <div>
+            <label class="muted" style="font-size:11px">Stop-loss price</label>
+            <input id="sizer-stop" type="number" min="0.0001" step="any" required />
+          </div>
+          <div style="grid-column:1/-1">
+            <button type="submit" class="btn btn-primary">Calculate</button>
+          </div>
+        </form>
+        <div id="sizer-result" style="margin-top:12px"></div>
+      </section>
+
+      <section id="trades-section" class="panel">
+        <h3>Recent orders</h3>
+        <table>
+          <thead><tr><th>Time</th><th>Sub</th><th>Mode</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Entry</th><th>Status</th><th>Reason</th></tr></thead>
+          <tbody id="orders-tbody"><tr><td colspan="9" class="empty">No orders yet — your subscription starts in paper mode.</td></tr></tbody>
+        </table>
+      </section>
+    </main>
+  </div>
+
+  <script src="/assets/config.js"></script>
+  <script src="/assets/panel.js"></script>
+  <script>
+    let cachedSubs = [];
+
+    async function loadMe() {
+      const u = await SX.me();
+      document.getElementById('me-email').textContent = u.email;
+      document.getElementById('me-role').textContent = u.role;
+      if (u.role === 'admin') location.href = '/admin.html';
+      else if (u.role === 'manager') location.href = '/manager.html';
+    }
+
+    async function loadKyc() {
+      try {
+        const k = await SX.api('/kyc/status');
+        const kpi = document.getElementById('kpi-kyc');
+        const section = document.getElementById('kyc-section');
+        const explainer = document.getElementById('kyc-explainer');
+        const btn = document.getElementById('kyc-start-btn');
+        const colors = {approved: 'var(--accent)', rejected: 'var(--danger)', submitted: 'var(--warn)', pending_review: 'var(--warn)', unverified: 'var(--text-dim)'};
+        kpi.textContent = k.status;
+        kpi.style.color = colors[k.status] || 'var(--text-dim)';
+        if (k.status === 'unverified') {
+          section.style.display = 'block';
+          explainer.textContent = 'Identity verification is required before live trading and before depositing into the on-chain vault. Verification is provided by Sumsub and typically takes 2–5 minutes.';
+          btn.textContent = 'Start verification';
+          btn.disabled = false;
+        } else if (k.status === 'submitted' || k.status === 'pending_review') {
+          section.style.display = 'block';
+          explainer.textContent = `Verification ${k.status === 'submitted' ? 'submitted' : 'pending compliance review'}. We'll email you when the verdict is in.`;
+          btn.textContent = 'Verification in progress';
+          btn.disabled = true;
+        } else if (k.status === 'rejected') {
+          section.style.display = 'block';
+          explainer.textContent = 'Verification was rejected. Reasons: ' + ((k.reject_reasons || []).join(', ') || 'undisclosed') + '. Contact support if you believe this is in error.';
+          btn.textContent = 'Resubmit verification';
+          btn.disabled = false;
+        } else {
+          section.style.display = 'none';
+        }
+      } catch (e) { console.warn('kyc/status', e); }
+    }
+
+    async function startKyc() {
+      const r = await SX.api('/kyc/start', {method: 'POST'});
+      alert('Verification started. Provider: ' + r.provider + '\\nStatus: ' + r.status + '\\nIn production this would open the Sumsub WebSDK widget. The mock provider auto-submits for testing.');
+      loadKyc();
+    }
+    window.startKyc = startKyc;
+
+    async function loadSubs() {
+      const subs = await SX.api('/client/me/subscriptions');
+      cachedSubs = subs;
+      const tbody = document.getElementById('subs-tbody');
+      const active = subs.filter(s => s.status === 'paper' || s.status === 'live');
+      document.getElementById('kpi-subs').textContent = active.length;
+      document.getElementById('kpi-tier').textContent = subs[0]?.tier || '—';
+      if (subs.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="empty">No subscriptions yet — <a href="/signup.html" class="muted">create one →</a></td></tr>';
+        return;
+      }
+      tbody.innerHTML = subs.map(s => `
+        <tr>
+          <td class="mono">#${s.id}</td>
+          <td>${s.tier}</td>
+          <td class="mono">${s.exchange_id} <span class="pill pill-muted" id="keyhealth-${s.id}" style="font-size:10px">…</span></td>
+          <td>${SX.badge(s.status, s.status)}</td>
+          <td>${s.live_trading_enabled ? '<span class="badge badge-live">live</span>' : '<span class="badge badge-paper">paper</span>'}</td>
+          <td class="muted mono">${SX.fmtDt(s.paper_until)}</td>
+          <td class="row">
+            <button class="btn btn-sm" onclick="checkKeys(${s.id})">Test keys</button>
+            <button class="btn btn-sm btn-warn" onclick="paperMode(${s.id})">Paper</button>
+            <button class="btn btn-sm btn-danger" onclick="killSub(${s.id})">Kill</button>
+            <button class="btn btn-sm" onclick="resumeSub(${s.id})">Resume</button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    async function checkKeys(id) {
+      const cell = document.getElementById('keyhealth-' + id);
+      if (cell) cell.textContent = 'checking…';
+      try {
+        const r = await SX.api('/autotrade/' + id + '/test-keys', {method:'POST'});
+        if (cell) {
+          cell.className = 'pill ' + (r.ok ? 'pill-success' : 'pill-bear');
+          cell.textContent = r.ok ? 'keys ok' : 'keys: ' + (r.error || 'fail');
+          cell.title = r.masked_key || '';
+        }
+      } catch (e) {
+        if (cell) { cell.className = 'pill pill-bear'; cell.textContent = 'check error'; }
+      }
+    }
+    window.checkKeys = checkKeys;
+
+    let allSignals = [];
+    async function loadSignals() {
+      try {
+        const sigs = await SX.api('/signals?limit=50');
+        allSignals = Array.isArray(sigs) ? sigs : (sigs.signals || []);
+        renderSignals();
+      } catch (e) { console.warn('signals', e); }
+    }
+    function renderSignals() {
+      const q = (document.getElementById('signal-filter').value || '').toUpperCase().trim();
+      const list = document.getElementById('signals-list');
+      const filtered = q ? allSignals.filter(s => (s.ticker || '').includes(q) || (s.symbol || '').includes(q)) : allSignals;
+      if (!filtered.length) {
+        list.innerHTML = '<div class="empty"><div class="empty-title">No signals match</div><div class="empty-body">Try a different ticker or wait for the next news event.</div></div>';
+        return;
+      }
+      list.innerHTML = filtered.slice(0, 20).map(s => {
+        const a = (s.action || 'WATCH').toLowerCase();
+        return `<div class="signal-card">
+          <div class="head">
+            <span class="pill pill-${a === 'long' ? 'bull' : a === 'short' ? 'bear' : a === 'watch' ? 'watch' : 'muted'}">${(s.action || 'WATCH')}</span>
+            <span class="ticker">${s.ticker || ''}</span>
+            <span class="mono muted" style="font-size:12px">${s.symbol || ''} · score ${(s.signal_score || 0).toFixed(1)}</span>
+            <span class="meta">${SX.fmtDt(s.created_at)}</span>
+          </div>
+          ${s.reason ? `<div class="reason">${(s.reason || '').slice(0, 240)}</div>` : ''}
+        </div>`;
+      }).join('');
+    }
+    window.renderSignals = renderSignals;
+
+    async function loadReferral() {
+      const body = document.getElementById('referral-body');
+      try {
+        const r = await SX.api('/referral/me');
+        const link = r.share_url || '';
+        body.innerHTML = `
+          <div class="kpi-grid" style="margin-bottom:14px">
+            <div class="kpi"><div class="label">Your code</div><div class="value mono" style="font-size:22px">${r.code}</div></div>
+            <div class="kpi"><div class="label">Referees (qualified)</div><div class="value">${r.referees_qualified || 0}<span class="muted" style="font-size:14px"> / ${r.referees_total || 0}</span></div></div>
+            <div class="kpi"><div class="label">Earnings (USDT)</div><div class="value pos">${SX.fmtMoney(r.earnings_usdt || 0)}</div></div>
+          </div>
+          <p class="muted" style="margin:0 0 12px">Share your link. When someone subscribes through it, you earn 20% of their gross revenue for the first 12 months. Payouts via TON Wallet Pay (USDT-TON, ~$0.01 fees).</p>
+          <div class="row">
+            <input id="ref-link" value="${link}" readonly />
+            <button class="btn btn-primary" onclick="copyRef()">Copy link</button>
+            <a class="btn btn-ghost" target="_blank" rel="noopener" href="${r.share_telegram}">Share on Telegram</a>
+          </div>`;
+      } catch (e) {
+        body.innerHTML = '<div class="alert alert-warn">Could not load referral status. Try refreshing.</div>';
+      }
+    }
+    function copyRef() {
+      const el = document.getElementById('ref-link');
+      if (!el) return;
+      el.select();
+      document.execCommand('copy');
+      const t = document.createElement('div');
+      t.className = 'sx-toast success';
+      t.textContent = 'Link copied to clipboard';
+      const rail = document.getElementById('sx-toast-rail') || (() => { const d = document.createElement('div'); d.id = 'sx-toast-rail'; document.body.appendChild(d); return d; })();
+      rail.appendChild(t);
+      setTimeout(() => t.remove(), 4000);
+    }
+    window.copyRef = copyRef;
+
+    async function loadOrders() {
+      let orders = [];
+      let pnl = 0, trades = 0;
+      for (const s of cachedSubs) {
+        try {
+          const detail = await SX.api(`/client/me/subscriptions/${s.id}`);
+          for (const o of detail.recent_orders || []) {
+            orders.push({...o, sub_id: s.id});
+          }
+          pnl += detail.pnl_today || 0;
+        } catch (e) {}
+      }
+      orders.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+      const today = new Date().toISOString().slice(0, 10);
+      trades = orders.filter(o => (o.created_at || '').startsWith(today)).length;
+      const k = document.getElementById('kpi-pnl');
+      k.textContent = SX.fmtMoney(pnl);
+      k.className = 'value ' + (pnl >= 0 ? 'pos' : 'neg');
+      document.getElementById('kpi-trades').textContent = trades;
+      const tbody = document.getElementById('orders-tbody');
+      if (orders.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="9" class="empty">No orders yet — your subscription starts in paper mode.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = orders.slice(0, 50).map(o => `
+        <tr>
+          <td class="muted">${SX.fmtDt(o.created_at)}</td>
+          <td class="mono">#${o.sub_id}</td>
+          <td>${SX.badge(o.mode, o.mode)}</td>
+          <td class="mono">${o.symbol}</td>
+          <td>${SX.badge(o.side === 'buy' ? 'long' : 'short', o.side)}</td>
+          <td class="mono">${o.qty?.toFixed(4) || '—'}</td>
+          <td class="mono">${o.entry_price?.toFixed(2) || '—'}</td>
+          <td>${SX.badge(o.status === 'rejected' ? 'rejected' : 'filled', o.status)}</td>
+          <td class="muted">${o.rejected_reason || '—'}</td>
+        </tr>
+      `).join('');
+    }
+
+    async function paperMode(id) { await SX.api(`/autotrade/${id}/paper-mode`, {method:'POST'}); refresh(); }
+    async function killSub(id)   { if (!confirm('Kill subscription #' + id + '? This stops all trading immediately.')) return;
+                                    await SX.api(`/autotrade/${id}/kill`, {method:'POST'}); refresh(); }
+    async function resumeSub(id) { await SX.api(`/autotrade/${id}/resume`, {method:'POST'}); refresh(); }
+    window.paperMode = paperMode; window.killSub = killSub; window.resumeSub = resumeSub;
+
+    async function loadRiskAck() {
+      try {
+        const r = await SX.api('/compliance/risk-ack');
+        const sec = document.getElementById('risk-ack-section');
+        sec.style.display = r.accepted ? 'none' : 'block';
+      } catch (e) { /* anonymous: hide */ }
+    }
+    async function acceptRiskAck() {
+      const r = await SX.api('/compliance/risk-ack');
+      await SX.api('/compliance/risk-ack', {
+        method: 'POST',
+        body: JSON.stringify({ version: r.current_version, accepted: true }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+      loadRiskAck();
+    }
+    window.acceptRiskAck = acceptRiskAck;
+
+    async function loadTwoFa() {
+      const body = document.getElementById('twofa-body');
+      try {
+        const s = await SX.api('/auth/2fa/status');
+        if (s.totp_enabled) {
+          body.innerHTML = `
+            <p class="muted" style="margin:0 0 12px">2FA is <strong style="color:var(--accent)">enabled</strong>. Required for VIP / Auto-Pro tiers before live trading.</p>
+            <div class="row">
+              <input id="twofa-disable-code" placeholder="Current 6-digit code" maxlength="6" inputmode="numeric" />
+              <button class="btn btn-warn" onclick="disableTwoFa()">Disable 2FA</button>
+            </div>`;
+        } else {
+          body.innerHTML = `
+            <p class="muted" style="margin:0 0 12px">Add an authenticator app (Google Authenticator, Authy, 1Password, Bitwarden) for an extra layer of protection. <strong>Required</strong> before VIP / Auto-Pro live trading.</p>
+            <button class="btn btn-primary" onclick="startTwoFaSetup()">Set up 2FA</button>
+            <div id="twofa-setup-area" style="margin-top:14px"></div>`;
+        }
+      } catch (e) { body.innerHTML = '<div class="alert alert-warn">Could not load 2FA status.</div>'; }
+    }
+    async function startTwoFaSetup() {
+      const r = await SX.api('/auth/2fa/setup', {method: 'POST'});
+      const area = document.getElementById('twofa-setup-area');
+      area.innerHTML = `
+        <p class="muted" style="margin:8px 0">Scan this QR with your authenticator app, or paste the secret manually:</p>
+        <div class="mono" style="word-break:break-all;background:var(--surface-2);padding:8px;border-radius:6px">${r.secret}</div>
+        <p class="muted" style="margin:8px 0">Provisioning URI (paste into a TOTP-capable tool):</p>
+        <div class="mono" style="word-break:break-all;background:var(--surface-2);padding:8px;border-radius:6px;font-size:12px">${r.provisioning_uri}</div>
+        <div class="row" style="margin-top:12px">
+          <input id="twofa-verify-code" placeholder="Enter 6-digit code" maxlength="6" inputmode="numeric" />
+          <button class="btn btn-primary" onclick="verifyTwoFa()">Verify & enable</button>
+        </div>`;
+    }
+    async function verifyTwoFa() {
+      const code = document.getElementById('twofa-verify-code').value.trim();
+      try {
+        await SX.api('/auth/2fa/verify', {
+          method: 'POST',
+          body: JSON.stringify({code}),
+          headers: {'Content-Type': 'application/json'},
+        });
+        loadTwoFa();
+      } catch (e) { alert('Invalid code. Try again.'); }
+    }
+    async function disableTwoFa() {
+      const code = document.getElementById('twofa-disable-code').value.trim();
+      try {
+        await SX.api('/auth/2fa/disable', {
+          method: 'POST',
+          body: JSON.stringify({code}),
+          headers: {'Content-Type': 'application/json'},
+        });
+        loadTwoFa();
+      } catch (e) { alert('Invalid code or 2FA already disabled.'); }
+    }
+    window.startTwoFaSetup = startTwoFaSetup;
+    window.verifyTwoFa = verifyTwoFa;
+    window.disableTwoFa = disableTwoFa;
+
+    async function loadFilterRail() {
+      try {
+        const api = window.SIGNALX_API || '';
+        const r = await fetch(api + '/signals/filter-stats');
+        if (!r.ok) return;
+        const s = await r.json();
+        // Field names match /signals/filter-stats response — see
+        // routes_signals.py:filter_stats() for the canonical schema.
+        document.getElementById('kpi-fil-pct').textContent =
+          (s.filtered_pct != null ? s.filtered_pct + '%' : '—');
+        document.getElementById('kpi-fil-visible').textContent = s.signals_visible ?? '—';
+        document.getElementById('kpi-fil-score').textContent =
+          (s.avg_visible_score != null ? s.avg_visible_score : '—');
+        document.getElementById('kpi-fil-risk').textContent =
+          (s.avg_visible_fake_risk != null ? s.avg_visible_fake_risk : '—');
+      } catch (e) { /* swallow */ }
+    }
+
+    function loadSizerSubs() {
+      const sel = document.getElementById('sizer-sub');
+      if (!sel) return;
+      const cur = sel.value;
+      sel.innerHTML = cachedSubs.map(s =>
+        `<option value="${s.id}">#${s.id} · ${s.tier} · ${s.exchange_id}</option>`
+      ).join('') || '<option value="">No subscriptions</option>';
+      if (cur) sel.value = cur;
+    }
+    async function runSizer(e) {
+      e.preventDefault();
+      const subId = document.getElementById('sizer-sub').value;
+      if (!subId) { alert('Create a subscription first.'); return false; }
+      const payload = {
+        equity: parseFloat(document.getElementById('sizer-equity').value),
+        entry_price: parseFloat(document.getElementById('sizer-entry').value),
+        stop_loss_price: parseFloat(document.getElementById('sizer-stop').value),
+        side: document.getElementById('sizer-side').value,
+        risk_per_trade_pct: parseFloat(document.getElementById('sizer-risk').value),
+      };
+      try {
+        const r = await SX.api(`/autotrade/${subId}/position-size`, {
+          method: 'POST',
+          body: JSON.stringify(payload),
+          headers: {'Content-Type': 'application/json'},
+        });
+        const out = document.getElementById('sizer-result');
+        const capColors = {risk: 'var(--accent)', max_position: 'var(--warn)', daily_loss: 'var(--danger)', invalid: 'var(--danger)'};
+        out.innerHTML = `
+          <div class="kpi-grid" style="grid-template-columns:repeat(4,minmax(0,1fr))">
+            <div class="kpi"><div class="label">Quantity</div><div class="value mono">${r.qty}</div></div>
+            <div class="kpi"><div class="label">Notional</div><div class="value">${SX.fmtMoney(r.notional)}</div></div>
+            <div class="kpi"><div class="label">Risk amount</div><div class="value">${SX.fmtMoney(r.risk_amount)}</div></div>
+            <div class="kpi"><div class="label">Stop distance</div><div class="value">${r.stop_distance_pct}%</div></div>
+          </div>
+          <p class="muted" style="margin-top:10px">
+            <span class="pill" style="background:${capColors[r.binding_cap] || 'var(--surface-2)'}">Binding cap: ${r.binding_cap}</span>
+            ${r.notes}
+          </p>`;
+      } catch (e) { alert(e.message || 'Calculation failed'); }
+      return false;
+    }
+    window.runSizer = runSizer;
+
+    // ─────────────────────── Wallet (managed-pool) ─────────────────────── //
+
+    function fmtUsdt(n) {
+      if (n === null || n === undefined || Number.isNaN(n)) return '—';
+      return Number(n).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    }
+
+    async function loadWallet() {
+      const sec = document.getElementById('wallet-section');
+      try {
+        const w = await SX.api('/wallet/me');
+        sec.style.display = 'block';
+        document.getElementById('w-equity').textContent = fmtUsdt(w.equity_usdt);
+        document.getElementById('w-shares').textContent = fmtUsdt(w.shares);
+        document.getElementById('w-price').textContent = '$' + fmtUsdt(w.share_price_usdt);
+        const pnl = document.getElementById('w-pnl');
+        const pv = w.all_time_pnl_usdt || 0;
+        pnl.textContent = (pv >= 0 ? '+$' : '−$') + fmtUsdt(Math.abs(pv));
+        pnl.style.color = pv >= 0 ? 'var(--accent)' : 'var(--danger)';
+        await loadWalletActivity();
+      } catch (e) {
+        // Endpoint can return 401 for anonymous (handled by SX.api) — leave hidden in that case.
+        if (e && e.message && /503/.test(e.message)) sec.style.display = 'block';
+      }
+    }
+
+    async function loadWalletActivity() {
+      const tbody = document.getElementById('w-activity');
+      try {
+        const [d, w] = await Promise.all([
+          SX.api('/wallet/deposits').catch(() => ({items: []})),
+          SX.api('/wallet/withdrawals').catch(() => ({items: []})),
+        ]);
+        const rows = [
+          ...(d.items || []).map(r => ({
+            ts: r.credited_at || r.created_at, kind: 'Deposit',
+            chain: r.chain, amount: r.amount_usdt, status: r.credited ? 'credited' : 'pending', tx: r.tx_hash,
+          })),
+          ...(w.items || []).map(r => ({
+            ts: r.sent_at || r.approved_at || r.created_at, kind: 'Withdraw',
+            chain: r.chain, amount: -r.amount_usdt, status: r.status, tx: r.tx_hash || '',
+          })),
+        ].sort((a, b) => (b.ts || '').localeCompare(a.ts || '')).slice(0, 20);
+        if (rows.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="6" class="empty">No activity yet.</td></tr>`;
+          return;
+        }
+        tbody.innerHTML = rows.map(r => `<tr>
+          <td>${(r.ts || '').slice(0, 16).replace('T', ' ')}</td>
+          <td>${r.kind}</td>
+          <td>${r.chain}</td>
+          <td style="color:${r.amount >= 0 ? 'var(--accent)' : 'var(--danger)'}">${r.amount >= 0 ? '+' : '−'}${fmtUsdt(Math.abs(r.amount))}</td>
+          <td><span class="pill">${r.status}</span></td>
+          <td>${r.tx ? `<code>${r.tx.slice(0, 10)}…</code>` : '—'}</td>
+        </tr>`).join('');
+      } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="6" class="empty">${e.message || 'Failed to load activity'}</td></tr>`;
+      }
+    }
+
+    async function loadDepositAddr() {
+      const chain = document.getElementById('w-deposit-chain').value;
+      const out = document.getElementById('w-deposit-addr');
+      out.innerHTML = 'Loading…';
+      try {
+        const r = await SX.api('/wallet/deposit-address', {method: 'POST', body: JSON.stringify({chain})});
+        out.innerHTML = `<div class="panel" style="background:var(--surface-2);padding:10px">
+          <div class="muted" style="font-size:11px">Chain: <strong>${r.chain.toUpperCase()}</strong> · Min: ${r.min_amount_usdt} USDT</div>
+          <div style="margin:6px 0;word-break:break-all"><code>${r.address}</code></div>
+          ${r.memo ? `<div class="muted" style="font-size:11px">Memo / tag: <code>${r.memo}</code> <strong>(REQUIRED — tx without memo cannot be credited)</strong></div>` : ''}
+          <div class="muted" style="font-size:11px;margin-top:6px">${r.warning}</div>
+        </div>`;
+      } catch (e) {
+        out.innerHTML = `<div style="color:var(--danger)">${e.message || 'Failed'}</div>`;
+      }
+    }
+    window.loadDepositAddr = loadDepositAddr;
+
+    async function submitWithdraw() {
+      const chain = document.getElementById('w-withdraw-chain').value;
+      const addr = document.getElementById('w-withdraw-addr').value.trim();
+      const amt = parseFloat(document.getElementById('w-withdraw-amt').value);
+      const out = document.getElementById('w-withdraw-result');
+      if (!addr || !(amt > 0)) {
+        out.innerHTML = `<div style="color:var(--warn)">Enter destination and amount.</div>`;
+        return;
+      }
+      try {
+        const r = await SX.api('/wallet/withdraw', {method: 'POST', body: JSON.stringify({
+          chain, destination_address: addr, amount_usdt: amt,
+        })});
+        out.innerHTML = `<div style="color:var(--accent)">Queued #${r.withdrawal_id} — ${fmtUsdt(r.amount_usdt)} USDT, ${fmtUsdt(r.shares_burned)} shares burned. Operator will review and send.</div>`;
+        await loadWallet();
+      } catch (e) {
+        out.innerHTML = `<div style="color:var(--danger)">${e.message || 'Failed'}</div>`;
+      }
+    }
+    window.submitWithdraw = submitWithdraw;
+
+    async function refresh() {
+      await loadSubs();
+      loadSizerSubs();
+      await loadOrders();
+      await loadKyc();
+      await loadSignals();
+      await loadReferral();
+      await loadRiskAck();
+      await loadTwoFa();
+      await loadFilterRail();
+      await loadWallet();
+    }
+
+    (async () => {
+      await loadMe();
+      await refresh();
+      setInterval(refresh, 10000);
+    })();
+  </script>
+</body>
+</html>

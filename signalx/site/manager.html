@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Manager · SignalX</title>
+  <link rel="icon" type="image/svg+xml" href="/assets/brand/mark.svg" />
+  <link rel="stylesheet" href="/assets/panel.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <h1><img src="/assets/brand/mark.svg" alt="" width="24" height="24"/> SignalX <span style="font-size:11px;color:var(--text-muted);font-weight:400;margin-left:6px">Manager</span></h1>
+      <nav>
+        <a href="#pipeline" class="active" onclick="switchView('pipeline');return false;">Pipeline (kanban)</a>
+        <a href="#leads" onclick="switchView('leads');return false;">All leads</a>
+        <a href="/app.html">↗ Client view</a>
+        <a href="/" target="_blank">↗ Public site</a>
+      </nav>
+      <div class="footer">
+        <div id="me-email" class="muted"></div>
+        <div style="margin-top:6px"><span id="me-role" class="role-pill">manager</span></div>
+        <button onclick="SX.logout()" style="margin-top:10px;width:100%">Sign out</button>
+      </div>
+    </aside>
+    <main class="main">
+      <div class="topbar">
+        <h2 id="page-title">Pipeline</h2>
+        <div class="right row">
+          <label class="muted" style="font-size:12px"><input type="checkbox" id="mine-filter" /> Mine only</label>
+          <button class="btn" onclick="reload()">Refresh</button>
+        </div>
+      </div>
+
+      <div class="kpi-grid">
+        <div class="kpi"><div class="label">Total leads</div><div class="value" id="kpi-total">—</div></div>
+        <div class="kpi"><div class="label">New</div><div class="value" id="kpi-new">—</div></div>
+        <div class="kpi"><div class="label">Qualified</div><div class="value pos" id="kpi-qual">—</div></div>
+        <div class="kpi"><div class="label">Onboarded</div><div class="value pos" id="kpi-on">—</div></div>
+      </div>
+
+      <section id="pipeline-section">
+        <div class="kanban" id="kanban">
+          <div class="kanban-col"><h4>New <span class="count">0</span></h4><div class="empty">Loading…</div></div>
+          <div class="kanban-col"><h4>Contacted <span class="count">0</span></h4></div>
+          <div class="kanban-col"><h4>Qualified <span class="count">0</span></h4></div>
+          <div class="kanban-col"><h4>Onboarded <span class="count">0</span></h4></div>
+          <div class="kanban-col"><h4>Lost <span class="count">0</span></h4></div>
+        </div>
+      </section>
+
+      <section id="leads-section" class="panel" style="display:none">
+        <h3>All investor leads</h3>
+        <table>
+          <thead><tr><th>ID</th><th>Created</th><th>Score</th><th>Name</th><th>Email</th><th>Capital</th><th>Track</th><th>Timeline</th><th>Status</th><th>Assigned</th><th></th></tr></thead>
+          <tbody id="leads-tbody"><tr><td colspan="11" class="empty">Loading…</td></tr></tbody>
+        </table>
+      </section>
+    </main>
+  </div>
+
+  <!-- Lead detail modal — split layout: left = facts/edit, right = activity timeline -->
+  <div id="modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:50;align-items:center;justify-content:center">
+    <div style="width:880px;max-width:96vw;max-height:92vh;background:var(--surface-1);border:1px solid var(--border-2);border-radius:16px;padding:0;display:flex;flex-direction:column;overflow:hidden">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:18px 20px;border-bottom:1px solid var(--border-1)">
+        <h3 style="margin:0" id="modal-title">Lead detail</h3>
+        <button class="btn-icon btn-ghost" onclick="closeModal()" aria-label="Close">×</button>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 320px;gap:0;overflow:hidden;flex:1;min-height:0">
+        <div id="modal-body" style="padding:20px;overflow-y:auto"></div>
+        <div style="border-left:1px solid var(--border-1);padding:20px;overflow-y:auto;background:var(--surface-0)">
+          <h4 style="margin:0 0 14px;text-transform:uppercase;letter-spacing:0.06em;font-size:11px;color:var(--text-muted)">Activity</h4>
+          <div id="activity-timeline" class="timeline"><div class="muted">Loading…</div></div>
+          <hr/>
+          <div class="form-row">
+            <label>Add activity</label>
+            <select id="activity-kind">
+              <option value="note">Note</option>
+              <option value="call_logged">Call logged</option>
+              <option value="email_sent">Email sent</option>
+            </select>
+            <textarea id="activity-body" rows="3" placeholder="Brief description…"></textarea>
+            <button class="btn btn-primary btn-sm" onclick="addActivity()">Add</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/assets/config.js"></script>
+  <script src="/assets/panel.js"></script>
+  <script>
+    let currentLeadId = null;
+    let allLeads = [];
+    let pipeline = null;
+
+    async function loadMe() {
+      const u = await SX.me();
+      document.getElementById('me-email').textContent = u.email;
+      document.getElementById('me-role').textContent = u.role;
+      if (u.role !== 'manager' && u.role !== 'admin') location.href = '/app.html';
+    }
+
+    function switchView(view) {
+      document.getElementById('pipeline-section').style.display = view === 'pipeline' ? '' : 'none';
+      document.getElementById('leads-section').style.display = view === 'leads' ? '' : 'none';
+      document.getElementById('page-title').textContent = view === 'pipeline' ? 'Pipeline' : 'All leads';
+      document.querySelectorAll('.sidebar nav a').forEach(a => a.classList.remove('active'));
+      document.querySelectorAll('.sidebar nav a').forEach(a => {
+        if (a.getAttribute('href') === '#' + view) a.classList.add('active');
+      });
+    }
+    window.switchView = switchView;
+
+    async function reload() {
+      await loadPipeline();
+      await loadLeads();
+    }
+
+    async function loadPipeline() {
+      const mine = document.getElementById('mine-filter').checked;
+      const qs = mine ? '?mine=true' : '';
+      try {
+        pipeline = await SX.api('/manager/pipeline' + qs);
+        renderPipeline();
+      } catch (e) { console.warn('pipeline', e); }
+    }
+
+    function renderPipeline() {
+      const order = ['new', 'contacted', 'qualified', 'onboarded', 'lost'];
+      const titles = {new:'New', contacted:'Contacted', qualified:'Qualified', onboarded:'Onboarded', lost:'Lost'};
+      const k = document.getElementById('kanban');
+      const buckets = (pipeline && pipeline.buckets) || {};
+      k.innerHTML = order.map(s => {
+        const items = buckets[s] || [];
+        return `<div class="kanban-col">
+          <h4>${titles[s]} <span class="count">${items.length}</span></h4>
+          <div>
+            ${items.length === 0 ? '<div class="empty"><div class="empty-body">No leads</div></div>' : ''}
+            ${items.map(l => `
+              <div class="lead-card" onclick="openLead(${l.id})">
+                <div class="lead-name">${(l.name || l.email || ('#' + l.id))}</div>
+                <div class="lead-meta">
+                  <span>${l.capital_band || '—'}</span>
+                  <span>·</span>
+                  <span>${l.track || '—'}</span>
+                  <span>·</span>
+                  <span>${l.timeline || '—'}</span>
+                </div>
+                <div class="score-bar"><div style="width:${Math.max(2, Math.min(100, l.score || 0))}%"></div></div>
+              </div>
+            `).join('')}
+          </div>
+        </div>`;
+      }).join('');
+    }
+
+    async function loadLeads() {
+      const mine = document.getElementById('mine-filter').checked;
+      const qs = mine ? '?mine=true' : '';
+      const leads = await SX.api('/manager/leads' + qs);
+      allLeads = leads;
+      document.getElementById('kpi-total').textContent = leads.length;
+      document.getElementById('kpi-new').textContent = leads.filter(l => l.status === 'new').length;
+      document.getElementById('kpi-qual').textContent = leads.filter(l => l.status === 'qualified').length;
+      document.getElementById('kpi-on').textContent = leads.filter(l => l.status === 'onboarded').length;
+      const tbody = document.getElementById('leads-tbody');
+      if (leads.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="11" class="empty">No leads yet.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = leads.map(l => `
+        <tr style="cursor:pointer" onclick="openLead(${l.id})">
+          <td class="mono">#${l.id}</td>
+          <td class="muted mono">${SX.fmtDt(l.created_at)}</td>
+          <td class="num">${l.score ?? '—'}</td>
+          <td>${l.name || '—'}</td>
+          <td class="muted">${l.email}</td>
+          <td class="mono">${l.capital_band || '—'}</td>
+          <td class="mono">${l.track || '—'}</td>
+          <td class="mono">${l.timeline || '—'}</td>
+          <td>${SX.badge(l.status, l.status)}</td>
+          <td class="muted">${l.assigned_manager_id ? '#' + l.assigned_manager_id : '—'}</td>
+          <td>→</td>
+        </tr>
+      `).join('');
+    }
+
+    async function openLead(id) {
+      currentLeadId = id;
+      const l = await SX.api(`/manager/leads/${id}`);
+      document.getElementById('modal-title').textContent = (l.name || l.email) + '  ·  #' + l.id;
+      const body = document.getElementById('modal-body');
+      body.innerHTML = `
+        <div class="kpi-grid" style="grid-template-columns:repeat(2, 1fr);gap:8px;margin-bottom:14px">
+          <div class="kpi"><div class="label">Score</div><div class="value">${l.score ?? '—'}</div></div>
+          <div class="kpi"><div class="label">Status</div><div class="value" style="font-size:18px">${SX.badge(l.status, l.status)}</div></div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(2, 1fr);gap:12px;margin-bottom:14px">
+          <div><div class="muted" style="font-size:11px;text-transform:uppercase">Email</div><div class="mono">${l.email}</div></div>
+          <div><div class="muted" style="font-size:11px;text-transform:uppercase">Capital</div><div class="mono">${l.capital_band || '—'}</div></div>
+          <div><div class="muted" style="font-size:11px;text-transform:uppercase">Track</div><div class="mono">${l.track || '—'}</div></div>
+          <div><div class="muted" style="font-size:11px;text-transform:uppercase">Timeline</div><div class="mono">${l.timeline || '—'}</div></div>
+        </div>
+        ${l.message ? `<div class="alert alert-info"><div><strong>Message:</strong><br/>${l.message}</div></div>` : ''}
+        ${l.notes ? `<div class="panel" style="margin:8px 0;padding:12px"><div class="muted" style="font-size:11px;text-transform:uppercase;margin-bottom:6px">Notes</div><pre style="white-space:pre-wrap;margin:0;font-size:13px;font-family:var(--font-mono)">${l.notes}</pre></div>` : ''}
+        <hr/>
+        <div class="form-row">
+          <label>Status</label>
+          <select id="new-status">
+            <option value="new">new</option>
+            <option value="contacted">contacted</option>
+            <option value="qualified">qualified</option>
+            <option value="onboarded">onboarded</option>
+            <option value="lost">lost</option>
+          </select>
+        </div>
+        <div class="form-row"><label class="muted"><input type="checkbox" id="assign-me" /> Assign to me</label></div>
+        <div class="form-row">
+          <label>Append note (saved separately to legacy notes field)</label>
+          <textarea id="note-text" rows="2" placeholder="Optional context…"></textarea>
+        </div>
+        <div class="row" style="margin-top:10px;justify-content:flex-end">
+          <button class="btn btn-ghost" onclick="closeModal()">Close</button>
+          <button class="btn btn-primary" onclick="saveLead(${l.id})">Save</button>
+        </div>
+      `;
+      document.getElementById('new-status').value = l.status;
+      document.getElementById('modal').style.display = 'flex';
+      loadActivity();
+    }
+    function closeModal() {
+      document.getElementById('modal').style.display = 'none';
+      currentLeadId = null;
+    }
+    window.openLead = openLead; window.closeModal = closeModal;
+
+    async function loadActivity() {
+      if (!currentLeadId) return;
+      const tl = document.getElementById('activity-timeline');
+      try {
+        const items = await SX.api(`/manager/leads/${currentLeadId}/activity`);
+        if (!items.length) {
+          tl.innerHTML = '<div class="muted" style="font-size:13px">No activity yet. Add a note to start the timeline.</div>';
+          return;
+        }
+        tl.innerHTML = items.map(it => {
+          const meta = SX.fmtDt(it.created_at) + (it.actor_email ? ' · ' + it.actor_email : '');
+          let body = it.body || '';
+          if (it.kind === 'status_change' || it.kind === 'assignment') {
+            try { body = JSON.stringify(JSON.parse(body)); } catch (e) {}
+          }
+          return `<div class="item ${it.kind}">
+            <div class="meta">${it.kind} · ${meta}</div>
+            <div class="body">${body || '<span class="muted">—</span>'}</div>
+          </div>`;
+        }).join('');
+      } catch (e) {
+        tl.innerHTML = '<div class="alert alert-warn">Could not load activity</div>';
+      }
+    }
+
+    async function addActivity() {
+      if (!currentLeadId) return;
+      const kind = document.getElementById('activity-kind').value;
+      const body = document.getElementById('activity-body').value.trim();
+      if (!body) return;
+      await SX.api(`/manager/leads/${currentLeadId}/activity`, {
+        method: 'POST', body: JSON.stringify({kind, body})
+      });
+      document.getElementById('activity-body').value = '';
+      loadActivity();
+    }
+    window.addActivity = addActivity;
+
+    async function saveLead(id) {
+      const payload = {
+        status: document.getElementById('new-status').value,
+        assign_to_me: document.getElementById('assign-me').checked,
+        note_append: document.getElementById('note-text').value || null,
+      };
+      await SX.api(`/manager/leads/${id}`, {method:'POST', body: JSON.stringify(payload)});
+      closeModal();
+      reload();
+    }
+    window.saveLead = saveLead;
+
+    document.getElementById('mine-filter').addEventListener('change', reload);
+
+    (async () => { await loadMe(); await reload(); setInterval(reload, 30000); })();
+  </script>
+</body>
+</html>

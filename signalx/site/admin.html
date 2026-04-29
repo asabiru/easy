@@ -1,0 +1,691 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Admin · SignalX</title>
+  <link rel="icon" type="image/svg+xml" href="/assets/brand/mark.svg" />
+  <link rel="stylesheet" href="/assets/panel.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <h1><img src="/assets/brand/mark.svg" alt="" width="24" height="24"/> SignalX <span style="font-size:11px;color:#b8a3ff;font-weight:400;margin-left:6px">Admin</span></h1>
+      <nav id="tabs-nav">
+        <a data-tab="system" class="active">System</a>
+        <a data-tab="revenue">Revenue</a>
+        <a data-tab="quality">Signal quality</a>
+        <a data-tab="users">Users</a>
+        <a data-tab="subs">Subscriptions</a>
+        <a data-tab="referrals">Referrals</a>
+        <a data-tab="signals">Signals</a>
+        <a data-tab="orders">Orders</a>
+        <a data-tab="audit">Audit</a>
+        <a data-tab="compliance">Compliance</a>
+        <a data-tab="treasury">Treasury</a>
+        <a href="/manager.html">↗ Manager view</a>
+        <a href="/app.html">↗ Client view</a>
+      </nav>
+      <div class="footer">
+        <div id="me-email" class="muted"></div>
+        <div style="margin-top:6px"><span id="me-role" class="role-pill" style="background:rgba(244,114,182,0.12);color:var(--accent-3)">admin</span></div>
+        <button onclick="SX.logout()" style="margin-top:10px;width:100%">Sign out</button>
+      </div>
+    </aside>
+    <main class="main">
+      <div class="topbar"><h2 id="page-title">System overview</h2><div class="right"><button onclick="loadCurrentTab()">Refresh</button></div></div>
+
+      <section data-tab="system">
+        <div class="kpi-grid" id="system-kpis"></div>
+        <div class="alert alert-warn" id="kill-warning" style="display:none">
+          <strong>Global autotrade kill switch is OFF.</strong> No subscription can place real orders, regardless of per-sub flags. Set <code>ENABLE_AUTOTRADE=true</code> in your env to allow live trading.
+        </div>
+      </section>
+
+      <section data-tab="revenue" hidden>
+        <div class="kpi-grid" id="revenue-kpis"><div class="skeleton xl"></div><div class="skeleton xl"></div><div class="skeleton xl"></div><div class="skeleton xl"></div></div>
+        <div class="panel">
+          <h3>Active subscriptions by tier</h3>
+          <table>
+            <thead><tr><th>Tier</th><th>Active subs</th><th>Monthly price (USDT)</th><th>Tier MRR</th></tr></thead>
+            <tbody id="revenue-tier-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section data-tab="quality" hidden>
+        <div class="kpi-grid" id="quality-kpis"><div class="skeleton xl"></div><div class="skeleton xl"></div><div class="skeleton xl"></div><div class="skeleton xl"></div></div>
+        <div class="panel">
+          <h3>Signal action breakdown (last 30d)</h3>
+          <table>
+            <thead><tr><th>Action</th><th>Count</th><th>Share</th></tr></thead>
+            <tbody id="quality-action-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section data-tab="referrals" hidden>
+        <div class="panel">
+          <h3>Top referrers</h3>
+          <table>
+            <thead><tr><th>Referrer</th><th>Code</th><th>Referees</th><th>Earnings (USDT)</th></tr></thead>
+            <tbody id="referrals-leaderboard-tbody"></tbody>
+          </table>
+        </div>
+        <div class="panel">
+          <h3>Recent referrals</h3>
+          <table>
+            <thead><tr><th>When</th><th>Code</th><th>Referrer</th><th>Referee</th><th>Status</th><th>First paid</th><th>Earnings</th></tr></thead>
+            <tbody id="referrals-recent-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section data-tab="users" hidden>
+        <div class="panel">
+          <h3>All users</h3>
+          <table>
+            <thead><tr><th>ID</th><th>Email</th><th>Role</th><th>Active</th><th>Created</th><th>Actions</th></tr></thead>
+            <tbody id="users-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section data-tab="subs" hidden>
+        <div class="panel">
+          <h3>All subscriptions</h3>
+          <table>
+            <thead><tr><th>ID</th><th>Email</th><th>Tier</th><th>Exchange</th><th>Status</th><th>Live</th><th>Caps</th><th>Created</th><th>Actions</th></tr></thead>
+            <tbody id="subs-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section data-tab="signals" hidden>
+        <div class="panel">
+          <h3>Recent signals</h3>
+          <table>
+            <thead><tr><th>ID</th><th>Created</th><th>Ticker</th><th>Symbol</th><th>Action</th><th>Score</th><th>Risk</th><th>Reason</th></tr></thead>
+            <tbody id="signals-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section data-tab="orders" hidden>
+        <div class="panel">
+          <h3>Recent autotrade orders</h3>
+          <table>
+            <thead><tr><th>ID</th><th>Created</th><th>Sub</th><th>Mode</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Status</th><th>Reason</th></tr></thead>
+            <tbody id="orders-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section data-tab="audit" hidden>
+        <div class="panel">
+          <h3>Audit log</h3>
+          <table>
+            <thead><tr><th>ID</th><th>When</th><th>Actor</th><th>Action</th><th>Target</th><th>Payload</th></tr></thead>
+            <tbody id="audit-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section data-tab="compliance" hidden>
+        <div class="panel">
+          <h3>KYC review queue <span class="muted" style="font-size:11px">(submitted + pending review)</span></h3>
+          <table>
+            <thead><tr><th>User</th><th>Email</th><th>Applicant</th><th>Status</th><th>Flags</th><th>Country</th><th>Reasons</th><th>Updated</th><th>Actions</th></tr></thead>
+            <tbody id="kyc-queue-tbody"></tbody>
+          </table>
+        </div>
+        <div class="panel" style="margin-top:16px">
+          <h3>AML audit log <span class="muted" style="font-size:11px">(append-only — FATF Recommendation 11)</span></h3>
+          <table>
+            <thead><tr><th>ID</th><th>When</th><th>User</th><th>Actor</th><th>Kind</th><th>Detail</th></tr></thead>
+            <tbody id="aml-events-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section data-tab="treasury" hidden>
+        <div class="kpi-grid" id="treasury-kpis">
+          <div class="kpi"><div class="label">Total AUM (USDT)</div><div class="value" id="treas-aum">—</div></div>
+          <div class="kpi"><div class="label">Total shares</div><div class="value" id="treas-shares" style="font-size:18px">—</div></div>
+          <div class="kpi"><div class="label">Share price</div><div class="value" id="treas-price" style="font-size:18px">—</div></div>
+          <div class="kpi"><div class="label">Active clients</div><div class="value" id="treas-clients" style="font-size:18px">—</div></div>
+          <div class="kpi"><div class="label">Health</div><div class="value" id="treas-health" style="font-size:18px">—</div><div class="muted" id="treas-health-detail" style="font-size:11px">—</div></div>
+        </div>
+        <div class="panel">
+          <h3 style="display:flex;justify-content:space-between;align-items:center">
+            By chain
+            <button class="btn btn-primary" onclick="openSnapshotModal()">+ NAV snapshot</button>
+          </h3>
+          <table>
+            <thead><tr><th>Chain</th><th>Total in (USDT)</th><th>Total out (USDT)</th><th>Net</th><th>Deposits</th><th>Withdrawals</th></tr></thead>
+            <tbody id="treas-bychain-tbody"></tbody>
+          </table>
+        </div>
+        <div class="panel" style="margin-top:16px">
+          <h3 style="display:flex;justify-content:space-between;align-items:center">
+            Withdrawal queue <span class="muted" style="font-size:11px">queued + approved · manual operator review</span>
+            <span id="treas-queue-count" class="pill">0</span>
+          </h3>
+          <table>
+            <thead><tr><th>ID</th><th>User</th><th>Chain</th><th>Destination</th><th>Amount (USDT)</th><th>Shares</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead>
+            <tbody id="treas-queue-tbody"><tr><td colspan="9" class="empty">Loading…</td></tr></tbody>
+          </table>
+        </div>
+        <div class="panel" style="margin-top:16px">
+          <h3 style="display:flex;justify-content:space-between;align-items:center">
+            Pending deposits <span class="muted" style="font-size:11px">uncredited · webhook-routed orphans + below-min</span>
+            <span id="treas-pending-count" class="pill">0</span>
+          </h3>
+          <table>
+            <thead><tr><th>ID</th><th>Routed to</th><th>Chain</th><th>TX hash</th><th>Amount (USDT)</th><th>Confirmed</th><th>Actions</th></tr></thead>
+            <tbody id="treas-pending-tbody"><tr><td colspan="7" class="empty">Loading…</td></tr></tbody>
+          </table>
+        </div>
+        <div class="panel" style="margin-top:16px">
+          <h3 style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+            Audit log <span class="muted" style="font-size:11px">last 100 custody_* events</span>
+            <span style="display:flex;gap:6px;align-items:center;margin-left:auto">
+              <a class="btn btn-ghost" id="audit-csv-link" href="/admin/treasury/audit-log.csv" target="_blank" rel="noopener" style="font-size:12px;padding:4px 8px">Export CSV</a>
+              <a class="btn btn-ghost" href="/admin/treasury/wallets.csv" target="_blank" rel="noopener" style="font-size:12px;padding:4px 8px">Wallets CSV</a>
+            </span>
+            <select id="audit-kind-filter" onchange="loadTreasuryAudit()" style="font-size:12px;padding:4px 8px">
+              <option value="">All kinds</option>
+              <option value="custody_deposit_credited">deposit_credited (manual)</option>
+              <option value="custody_deposit_webhook_credited">deposit_webhook_credited</option>
+              <option value="custody_deposit_webhook_pending_review">webhook_pending_review</option>
+              <option value="custody_deposit_reattributed">deposit_reattributed</option>
+              <option value="custody_address_allocated">address_allocated</option>
+              <option value="custody_withdraw_requested">withdraw_requested</option>
+              <option value="custody_withdraw_approved">withdraw_approved</option>
+              <option value="custody_withdraw_sent">withdraw_sent</option>
+              <option value="custody_withdraw_cancelled">withdraw_cancelled</option>
+              <option value="custody_nav_snapshot">nav_snapshot</option>
+            </select>
+          </h3>
+          <table>
+            <thead><tr><th>ID</th><th>Kind</th><th>User</th><th>Actor</th><th>Detail</th><th>At</th></tr></thead>
+            <tbody id="treas-audit-tbody"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
+          </table>
+        </div>
+        <div class="panel" style="margin-top:16px">
+          <h3>Manual deposit credit <span class="muted" style="font-size:11px">MVP — before chain webhooks</span></h3>
+          <p class="muted" style="font-size:12px;margin-bottom:8px">
+            Idempotent on (chain, tx_hash). Re-calling with the same TX returns the existing
+            row without double-issuing shares.
+          </p>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:8px;align-items:end">
+            <input id="cd-user-id" type="number" placeholder="User ID" />
+            <select id="cd-chain">
+              <option value="trc20">TRC20</option><option value="ton">TON</option><option value="sol">Solana</option>
+              <option value="bsc">BSC</option><option value="erc20">ERC20</option>
+            </select>
+            <input id="cd-tx" placeholder="TX hash" />
+            <input id="cd-amt" type="number" step="0.01" min="0.01" placeholder="USDT amount" />
+            <button class="btn btn-primary" onclick="creditDeposit()">Credit</button>
+          </div>
+          <div id="cd-result" style="margin-top:8px"></div>
+        </div>
+      </section>
+
+      <!-- NAV-snapshot modal -->
+      <div id="snap-modal" style="display:none;position:fixed;inset:0;background:rgba(8,11,18,0.7);z-index:50;align-items:center;justify-content:center">
+        <div class="panel" style="max-width:480px;width:92%">
+          <h3>Take NAV snapshot</h3>
+          <p class="muted" style="font-size:12px;margin-bottom:10px">
+            Operator-supplied total AUM in USDT (exchange balance + open positions marked-to-market + treasury USDT − pending fee transfers). Triggers HWM-based performance fee accrual.
+          </p>
+          <input id="snap-aum" type="number" step="0.01" placeholder="Total AUM (USDT)" style="width:100%;margin-bottom:8px" />
+          <input id="snap-note" placeholder="Note (optional, max 256 chars)" style="width:100%;margin-bottom:12px" />
+          <div style="display:flex;gap:8px;justify-content:flex-end">
+            <button class="btn" onclick="closeSnapshotModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="submitSnapshot()">Snapshot</button>
+          </div>
+          <div id="snap-result" style="margin-top:8px"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/assets/config.js"></script>
+  <script src="/assets/panel.js"></script>
+  <script>
+    let currentTab = 'system';
+
+    async function loadMe() {
+      const u = await SX.me();
+      document.getElementById('me-email').textContent = u.email;
+      if (u.role !== 'admin') location.href = '/app.html';
+    }
+
+    function setTab(name) {
+      currentTab = name;
+      document.querySelectorAll('#tabs-nav a').forEach(a => a.classList.toggle('active', a.dataset.tab === name));
+      document.querySelectorAll('section[data-tab]').forEach(s => s.hidden = s.dataset.tab !== name);
+      document.getElementById('page-title').textContent = ({
+        system: 'System overview', revenue: 'Revenue dashboard', quality: 'Signal quality',
+        users: 'Users', subs: 'Subscriptions', referrals: 'Referrals',
+        signals: 'Signals', orders: 'Orders', audit: 'Audit log',
+        compliance: 'Compliance / KYC', treasury: 'Treasury · managed pool'
+      })[name];
+      loadCurrentTab();
+    }
+
+    async function loadSystem() {
+      const r = await SX.api('/admin/system');
+      document.getElementById('system-kpis').innerHTML = `
+        <div class="kpi"><div class="label">Users</div><div class="value">${r.users_count}</div></div>
+        <div class="kpi"><div class="label">Subs Live</div><div class="value pos">${r.subs_live}</div></div>
+        <div class="kpi"><div class="label">Subs Paper</div><div class="value">${r.subs_paper}</div></div>
+        <div class="kpi"><div class="label">Subs Paused</div><div class="value" style="color:var(--warn)">${r.subs_paused}</div></div>
+        <div class="kpi"><div class="label">Subs Killed</div><div class="value neg">${r.subs_killed}</div></div>
+        <div class="kpi"><div class="label">Signals 24h</div><div class="value">${r.signals_24h}</div></div>
+        <div class="kpi"><div class="label">News 24h</div><div class="value">${r.news_events_24h}</div></div>
+        <div class="kpi"><div class="label">Open tickets</div><div class="value">${r.open_tickets}</div></div>
+        <div class="kpi"><div class="label">Investor leads</div><div class="value">${r.investor_leads_open}</div></div>
+        <div class="kpi"><div class="label">Global autotrade</div><div class="value" style="color:${r.global_autotrade_enabled ? 'var(--accent)' : 'var(--danger)'}">${r.global_autotrade_enabled ? 'ON' : 'OFF'}</div></div>
+        <div class="kpi"><div class="label">Telegram</div><div class="value" style="font-size:18px">${r.telegram_enabled ? 'enabled' : 'disabled'}</div></div>
+      `;
+      document.getElementById('kill-warning').style.display = r.global_autotrade_enabled ? 'none' : 'block';
+    }
+
+    async function loadUsers() {
+      const u = await SX.api('/admin/users');
+      document.getElementById('users-tbody').innerHTML = u.map(x => `
+        <tr>
+          <td class="mono">#${x.id}</td>
+          <td>${x.email}</td>
+          <td>
+            <select onchange="setRole(${x.id}, this.value)">
+              <option value="client" ${x.role==='client'?'selected':''}>client</option>
+              <option value="manager" ${x.role==='manager'?'selected':''}>manager</option>
+              <option value="admin" ${x.role==='admin'?'selected':''}>admin</option>
+            </select>
+          </td>
+          <td>${x.is_active ? '<span class="badge badge-live">active</span>' : '<span class="badge badge-killed">disabled</span>'}</td>
+          <td class="muted">${SX.fmtDt(x.created_at)}</td>
+          <td>${x.is_active ? `<button class="btn-danger" onclick="disableUser(${x.id})">Disable</button>` : ''}</td>
+        </tr>
+      `).join('');
+    }
+
+    async function loadSubs() {
+      const subs = await SX.api('/admin/subscriptions');
+      document.getElementById('subs-tbody').innerHTML = subs.map(s => `
+        <tr>
+          <td class="mono">#${s.id}</td>
+          <td>${s.email}</td>
+          <td>${s.tier}</td>
+          <td class="mono">${s.exchange_id}</td>
+          <td>${SX.badge(s.status, s.status)}</td>
+          <td>${s.live_trading_enabled ? '<span class="badge badge-live">yes</span>' : '<span class="badge badge-paper">no</span>'}</td>
+          <td class="mono">pos ${(s.max_position_pct*100).toFixed(0)}% / loss ${(s.daily_loss_limit_pct*100).toFixed(0)}%</td>
+          <td class="muted">${SX.fmtDt(s.created_at)}</td>
+          <td><button class="btn-danger" onclick="forceKill(${s.id})">Force kill</button></td>
+        </tr>
+      `).join('');
+    }
+
+    async function loadSignals() {
+      const sigs = await SX.api('/admin/signals');
+      document.getElementById('signals-tbody').innerHTML = sigs.map(s => `
+        <tr>
+          <td class="mono">#${s.id}</td>
+          <td class="muted">${SX.fmtDt(s.created_at)}</td>
+          <td>${s.ticker}</td>
+          <td class="mono">${s.symbol}</td>
+          <td>${SX.badge(s.action === 'LONG' ? 'long' : s.action === 'SHORT' ? 'short' : 'watch', s.action)}</td>
+          <td class="mono">${s.signal_score}</td>
+          <td>${s.risk_level || '—'}</td>
+          <td class="muted" style="max-width:340px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.reason || ''}</td>
+        </tr>
+      `).join('');
+    }
+
+    async function loadOrders() {
+      const os = await SX.api('/admin/orders');
+      document.getElementById('orders-tbody').innerHTML = os.map(o => `
+        <tr>
+          <td class="mono">#${o.id}</td>
+          <td class="muted">${SX.fmtDt(o.created_at)}</td>
+          <td class="mono">#${o.subscription_id}</td>
+          <td>${SX.badge(o.mode, o.mode)}</td>
+          <td class="mono">${o.symbol}</td>
+          <td>${SX.badge(o.side === 'buy' ? 'long' : 'short', o.side)}</td>
+          <td class="mono">${o.qty?.toFixed(4) || '—'}</td>
+          <td>${SX.badge(o.status === 'rejected' ? 'rejected' : 'filled', o.status)}</td>
+          <td class="muted">${o.rejected_reason || '—'}</td>
+        </tr>
+      `).join('');
+    }
+
+    async function loadAudit() {
+      const a = await SX.api('/admin/audit');
+      document.getElementById('audit-tbody').innerHTML = a.map(r => `
+        <tr>
+          <td class="mono">#${r.id}</td>
+          <td class="muted">${SX.fmtDt(r.created_at)}</td>
+          <td class="mono">#${r.actor_user_id || '—'}</td>
+          <td><span class="badge badge-new">${r.action}</span></td>
+          <td class="mono">${r.target_type || ''} ${r.target_id ? '#' + r.target_id : ''}</td>
+          <td class="muted mono" style="max-width:300px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.payload || ''}</td>
+        </tr>
+      `).join('');
+    }
+
+    async function setRole(id, role) { await SX.api(`/admin/users/${id}/role`, {method:'POST', body: JSON.stringify({role})}); loadUsers(); }
+    async function disableUser(id) { if (!confirm('Disable user #' + id + '?')) return; await SX.api(`/admin/users/${id}/disable`, {method:'POST'}); loadUsers(); }
+    async function forceKill(id) { if (!confirm('Force-kill subscription #' + id + '?')) return; await SX.api(`/admin/subscriptions/${id}/force-kill`, {method:'POST'}); loadSubs(); }
+    window.setRole = setRole; window.disableUser = disableUser; window.forceKill = forceKill;
+
+    async function loadCompliance() {
+      const [queue, events] = await Promise.all([
+        SX.api('/admin/kyc/queue'),
+        SX.api('/admin/kyc/events?limit=100'),
+      ]);
+      document.getElementById('kyc-queue-tbody').innerHTML = queue.map(p => `
+        <tr>
+          <td class="mono">#${p.user_id}</td>
+          <td>${p.email || ''}</td>
+          <td class="mono" style="max-width:140px;overflow:hidden;text-overflow:ellipsis">${p.applicant_id || '—'}</td>
+          <td>${SX.badge(p.status === 'submitted' ? 'paper' : 'paused', p.status)}</td>
+          <td>${[p.sanctions_hit ? '<span class="badge badge-killed">SANCTIONS</span>' : '', p.pep_hit ? '<span class="badge badge-paused">PEP</span>' : '', p.sof_required ? '<span class="badge badge-new">SoF</span>' : ''].filter(Boolean).join(' ') || '—'}</td>
+          <td class="mono">${p.country || '—'}</td>
+          <td class="muted" style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${(p.reject_reasons || []).join(', ') || '—'}</td>
+          <td class="muted">${SX.fmtDt(p.updated_at)}</td>
+          <td>
+            <button onclick="kycOverride(${p.user_id}, 'approved')">Approve</button>
+            <button class="btn-danger" onclick="kycOverride(${p.user_id}, 'rejected')">Reject</button>
+          </td>
+        </tr>
+      `).join('') || '<tr><td colspan="9" class="muted" style="text-align:center">No KYC profiles in review.</td></tr>';
+      document.getElementById('aml-events-tbody').innerHTML = events.map(e => `
+        <tr>
+          <td class="mono">#${e.id}</td>
+          <td class="muted">${SX.fmtDt(e.created_at)}</td>
+          <td class="mono">${e.user_id ? '#' + e.user_id : '—'}</td>
+          <td class="mono">${e.actor_id ? '#' + e.actor_id : '—'}</td>
+          <td><span class="badge badge-new">${e.kind}</span></td>
+          <td class="muted mono" style="max-width:420px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${e.detail || ''}</td>
+        </tr>
+      `).join('');
+    }
+
+    async function kycOverride(userId, status) {
+      const reason = prompt(`Reason for ${status} (visible in audit log)?`);
+      if (!reason || reason.length < 4) return;
+      await SX.api(`/admin/kyc/${userId}/override`, {method:'POST', body: JSON.stringify({new_status: status, reason})});
+      loadCompliance();
+    }
+    window.kycOverride = kycOverride;
+
+    async function loadRevenue() {
+      const r = await SX.api('/admin/metrics/revenue');
+      document.getElementById('revenue-kpis').innerHTML = `
+        <div class="kpi"><div class="label">MRR</div><div class="value pos">$${r.mrr_usdt.toLocaleString()}</div><div class="delta">${r.active_subs} active subs</div></div>
+        <div class="kpi"><div class="label">ARR projection</div><div class="value">$${r.arr_projection_usdt.toLocaleString()}</div><div class="delta muted">MRR × 12, naive</div></div>
+        <div class="kpi"><div class="label">Churn 30d</div><div class="value ${r.churn_30d_pct > 8 ? 'neg' : ''}">${r.churn_30d_pct}%</div><div class="delta">${r.killed_30d} killed</div></div>
+        <div class="kpi"><div class="label">Revenue 30d</div><div class="value">$${r.revenue_paid_30d_usdt.toLocaleString()}</div><div class="delta muted">$${r.revenue_paid_lifetime_usdt.toLocaleString()} lifetime</div></div>
+      `;
+      const tbody = document.getElementById('revenue-tier-tbody');
+      tbody.innerHTML = Object.entries(r.tier_price_card).map(([tier, price]) => {
+        const count = r.active_by_tier[tier] || 0;
+        return `<tr><td>${tier}</td><td class="num">${count}</td><td class="num">$${price}</td><td class="num">$${(count * price).toLocaleString()}</td></tr>`;
+      }).join('');
+    }
+
+    async function loadQuality() {
+      const q = await SX.api('/admin/metrics/signal-quality');
+      document.getElementById('quality-kpis').innerHTML = `
+        <div class="kpi"><div class="label">Win rate (30d)</div><div class="value ${q.win_rate_pct == null ? '' : (q.win_rate_pct >= 55 ? 'pos' : (q.win_rate_pct < 45 ? 'neg' : ''))}">${q.win_rate_pct == null ? '—' : q.win_rate_pct + '%'}</div><div class="delta">${q.wins}W · ${q.losses}L · ${q.undecided} pending</div></div>
+        <div class="kpi"><div class="label">Signals total</div><div class="value">${q.signals_total}</div><div class="delta muted">${q.actionable_count} actionable</div></div>
+        <div class="kpi"><div class="label">Avg signal score</div><div class="value">${q.avg_signal_score ?? '—'}</div></div>
+        <div class="kpi"><div class="label">Avg fake-risk</div><div class="value">${q.avg_fake_risk ?? '—'}</div></div>
+      `;
+      const total = q.signals_total || 1;
+      const tbody = document.getElementById('quality-action-tbody');
+      const order = ['LONG', 'SHORT', 'WATCH', 'SKIP'];
+      tbody.innerHTML = order.filter(a => q.by_action[a]).map(a => {
+        const c = q.by_action[a];
+        const share = ((c / total) * 100).toFixed(1);
+        return `<tr><td>${SX.badge(a === 'LONG' ? 'long' : a === 'SHORT' ? 'short' : 'watch', a)}</td><td class="num">${c}</td><td class="num">${share}%</td></tr>`;
+      }).join('');
+    }
+
+    async function loadReferrals() {
+      const r = await SX.api('/admin/referrals');
+      document.getElementById('referrals-leaderboard-tbody').innerHTML = (r.leaderboard || []).map(x => `
+        <tr>
+          <td>${x.referrer_email || ('#' + x.referrer_id)}</td>
+          <td class="mono">${x.code || '—'}</td>
+          <td class="num">${x.count}</td>
+          <td class="num pos">$${(x.earnings_usdt || 0).toLocaleString()}</td>
+        </tr>
+      `).join('') || '<tr><td colspan="4" class="muted" style="text-align:center">No referrals yet.</td></tr>';
+      document.getElementById('referrals-recent-tbody').innerHTML = (r.recent || []).map(x => `
+        <tr>
+          <td class="muted mono">${SX.fmtDt(x.created_at)}</td>
+          <td class="mono">${x.code}</td>
+          <td class="mono">#${x.referrer_id}</td>
+          <td class="mono">#${x.referee_id}</td>
+          <td>${SX.badge(x.status === 'qualified' ? 'qualified' : x.status === 'revoked' ? 'rejected' : 'paper', x.status)}</td>
+          <td class="muted mono">${SX.fmtDt(x.first_paid_at)}</td>
+          <td class="num">$${(x.earnings_usdt || 0).toLocaleString()}</td>
+        </tr>
+      `).join('') || '<tr><td colspan="7" class="muted" style="text-align:center">No recent referrals.</td></tr>';
+    }
+
+    // ─────────────────────────── Treasury ─────────────────────────── //
+    function fmtN(n, d=2) {
+      if (n === null || n === undefined || Number.isNaN(n)) return '—';
+      return Number(n).toLocaleString('en-US', {minimumFractionDigits: d, maximumFractionDigits: d});
+    }
+
+    async function loadTreasuryHealth() {
+      try {
+        const h = await SX.api('/admin/treasury/health');
+        const colors = {ok: 'var(--accent)', warn: '#facc15', critical: 'var(--danger)'};
+        const el = document.getElementById('treas-health');
+        el.textContent = h.overall_status.toUpperCase();
+        el.style.color = colors[h.overall_status] || 'var(--text)';
+        const bits = [];
+        if (h.unattributed_count) bits.push(`${h.unattributed_count} unattributed`);
+        if (h.pending_withdrawal_count) bits.push(`${h.pending_withdrawal_count} pending wd`);
+        if (h.latest_nav_age_hours !== null && h.latest_nav_age_hours !== undefined) bits.push(`NAV ${h.latest_nav_age_hours.toFixed(1)}h old`);
+        if (h.negative_balances) bits.push(`${h.negative_balances} NEGATIVE`);
+        if (h.webhook_signature_failures_1h) bits.push(`${h.webhook_signature_failures_1h} sig-fail/1h`);
+        document.getElementById('treas-health-detail').textContent = bits.join(' · ') || 'all clean';
+      } catch (e) {
+        document.getElementById('treas-health').textContent = 'ERR';
+      }
+    }
+
+    async function loadTreasury() {
+      const [pool, queue] = await Promise.all([
+        SX.api('/admin/treasury/pool'),
+        SX.api('/admin/treasury/withdrawals/queue'),
+        loadTreasuryPending(),
+        loadTreasuryAudit(),
+        loadTreasuryHealth(),
+      ]);
+      document.getElementById('treas-aum').textContent = '$' + fmtN(pool.total_aum_usdt);
+      document.getElementById('treas-shares').textContent = fmtN(pool.total_shares, 4);
+      document.getElementById('treas-price').textContent = '$' + fmtN(pool.share_price_usdt, 6);
+      document.getElementById('treas-clients').textContent = pool.client_count;
+
+      document.getElementById('treas-bychain-tbody').innerHTML = Object.entries(pool.by_chain).map(([chain, v]) => `<tr>
+        <td><strong>${chain.toUpperCase()}</strong></td>
+        <td>${fmtN(v.total_in_usdt)}</td>
+        <td>${fmtN(v.total_out_usdt)}</td>
+        <td style="color:${v.total_in_usdt - v.total_out_usdt >= 0 ? 'var(--accent)' : 'var(--danger)'}">${fmtN(v.total_in_usdt - v.total_out_usdt)}</td>
+        <td>${v.deposit_count}</td>
+        <td>${v.withdraw_count}</td>
+      </tr>`).join('');
+
+      document.getElementById('treas-queue-count').textContent = queue.items.length;
+      document.getElementById('treas-queue-tbody').innerHTML = queue.items.length === 0
+        ? '<tr><td colspan="9" class="empty">Queue is empty.</td></tr>'
+        : queue.items.map(r => `<tr>
+            <td>#${r.id}</td>
+            <td>${r.user_id}</td>
+            <td>${r.chain.toUpperCase()}</td>
+            <td><code style="word-break:break-all">${r.destination_address}</code></td>
+            <td>${fmtN(r.amount_usdt)}</td>
+            <td>${fmtN(r.shares_burned, 4)}</td>
+            <td><span class="pill">${r.status}</span></td>
+            <td>${(r.created_at || '').slice(0, 16).replace('T', ' ')}</td>
+            <td>
+              ${r.status === 'queued' ? `<button class="btn btn-primary" onclick="approveWd(${r.id})">Approve</button>` : ''}
+              ${r.status === 'approved' ? `<button class="btn btn-primary" onclick="sendWd(${r.id})">Mark sent</button>` : ''}
+              <button class="btn" onclick="cancelWd(${r.id})">Cancel</button>
+            </td>
+          </tr>`).join('');
+    }
+
+    async function loadTreasuryPending() {
+      try {
+        const r = await SX.api('/admin/treasury/deposits/pending');
+        document.getElementById('treas-pending-count').textContent = r.items.length;
+        const tbody = document.getElementById('treas-pending-tbody');
+        if (!r.items.length) { tbody.innerHTML = '<tr><td colspan="7" class="empty">All inbound deposits credited.</td></tr>'; return; }
+        tbody.innerHTML = r.items.map(d => `
+          <tr>
+            <td>#${d.id}</td>
+            <td>${d.is_unattributed
+              ? '<span class="pill" style="background:rgba(250,204,21,0.16);color:#facc15">unattributed</span>'
+              : `user ${d.user_id} · below-min`}</td>
+            <td>${d.chain.toUpperCase()}</td>
+            <td><code style="word-break:break-all;font-size:11px">${(d.tx_hash || '').slice(0, 24)}…</code></td>
+            <td>${fmtN(d.amount_usdt)}</td>
+            <td>${(d.confirmed_at || '').slice(0, 16).replace('T', ' ') || '—'}</td>
+            <td>
+              ${d.is_unattributed
+                ? `<button class="btn btn-primary" onclick="reattributeDeposit(${d.id})">Reattribute</button>`
+                : '<span class="muted" style="font-size:11px">below-min</span>'}
+            </td>
+          </tr>`).join('');
+      } catch (e) {
+        document.getElementById('treas-pending-tbody').innerHTML =
+          `<tr><td colspan="7" class="muted">Error: ${e.message}</td></tr>`;
+      }
+    }
+
+    async function reattributeDeposit(id) {
+      const userId = prompt('Target user ID for deposit #' + id);
+      if (!userId || !/^\d+$/.test(userId)) return;
+      const note = prompt('Justification note (4–512 chars). E.g. "matched via Tron explorer + email confirmation":');
+      if (!note || note.length < 4) { alert('Note required'); return; }
+      try {
+        await SX.api(`/admin/treasury/deposits/${id}/reattribute`, {
+          method: 'POST',
+          body: JSON.stringify({user_id: parseInt(userId, 10), note}),
+        });
+      } catch (e) { alert(e.message); return; }
+      await loadTreasury();
+    }
+    window.reattributeDeposit = reattributeDeposit;
+
+    async function loadTreasuryAudit() {
+      try {
+        const kindEl = document.getElementById('audit-kind-filter');
+        const kind = kindEl ? kindEl.value : '';
+        const url = '/admin/treasury/audit-log?limit=100' + (kind ? '&kind=' + encodeURIComponent(kind) : '');
+        const r = await SX.api(url);
+        const tbody = document.getElementById('treas-audit-tbody');
+        if (!r.items.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty">No events yet.</td></tr>'; return; }
+        tbody.innerHTML = r.items.map(e => {
+          const detail = typeof e.detail === 'string' ? e.detail : JSON.stringify(e.detail || {});
+          return `<tr>
+            <td>#${e.id}</td>
+            <td><code style="font-size:11px">${e.kind.replace(/^custody_/, '')}</code></td>
+            <td>${e.user_id ?? '—'}</td>
+            <td>${e.actor_id ?? '—'}</td>
+            <td style="max-width:380px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${detail.replace(/"/g, '&quot;')}"><span class="muted" style="font-size:11px">${detail.slice(0, 80)}${detail.length > 80 ? '…' : ''}</span></td>
+            <td>${(e.created_at || '').slice(0, 16).replace('T', ' ')}</td>
+          </tr>`;
+        }).join('');
+      } catch (e) {
+        document.getElementById('treas-audit-tbody').innerHTML =
+          `<tr><td colspan="6" class="muted">Error: ${e.message}</td></tr>`;
+      }
+    }
+    window.loadTreasuryAudit = loadTreasuryAudit;
+
+    async function approveWd(id) {
+      try { await SX.api(`/admin/treasury/withdrawals/${id}/approve`, {method: 'POST'}); }
+      catch (e) { alert(e.message); return; }
+      await loadTreasury();
+    }
+    async function sendWd(id) {
+      const tx = prompt('On-chain TX hash for withdrawal #' + id);
+      if (!tx) return;
+      try { await SX.api(`/admin/treasury/withdrawals/${id}/send`, {method: 'POST', body: JSON.stringify({tx_hash: tx})}); }
+      catch (e) { alert(e.message); return; }
+      await loadTreasury();
+    }
+    async function cancelWd(id) {
+      const reason = prompt('Cancel reason (min 4 chars) for #' + id);
+      if (!reason || reason.length < 4) return;
+      try { await SX.api(`/admin/treasury/withdrawals/${id}/cancel`, {method: 'POST', body: JSON.stringify({reason})}); }
+      catch (e) { alert(e.message); return; }
+      await loadTreasury();
+    }
+    window.approveWd = approveWd; window.sendWd = sendWd; window.cancelWd = cancelWd;
+
+    function openSnapshotModal() { document.getElementById('snap-modal').style.display = 'flex'; }
+    function closeSnapshotModal() { document.getElementById('snap-modal').style.display = 'none'; }
+    window.openSnapshotModal = openSnapshotModal; window.closeSnapshotModal = closeSnapshotModal;
+
+    async function submitSnapshot() {
+      const aum = parseFloat(document.getElementById('snap-aum').value);
+      const note = document.getElementById('snap-note').value.trim();
+      const out = document.getElementById('snap-result');
+      if (!(aum >= 0)) { out.innerHTML = '<div style="color:var(--warn)">Enter AUM</div>'; return; }
+      try {
+        const r = await SX.api('/admin/treasury/nav/snapshot', {method: 'POST', body: JSON.stringify({aum_usdt: aum, note})});
+        out.innerHTML = `<div style="color:var(--accent)">Snapshot #${r.id} · share-price $${fmtN(r.share_price_usdt, 6)}</div>`;
+        await loadTreasury();
+      } catch (e) { out.innerHTML = `<div style="color:var(--danger)">${e.message}</div>`; }
+    }
+    window.submitSnapshot = submitSnapshot;
+
+    async function creditDeposit() {
+      const out = document.getElementById('cd-result');
+      const payload = {
+        user_id: parseInt(document.getElementById('cd-user-id').value, 10),
+        chain: document.getElementById('cd-chain').value,
+        tx_hash: document.getElementById('cd-tx').value.trim(),
+        amount_usdt: parseFloat(document.getElementById('cd-amt').value),
+      };
+      if (!payload.user_id || !payload.tx_hash || !(payload.amount_usdt > 0)) {
+        out.innerHTML = '<div style="color:var(--warn)">Fill in user, TX, amount</div>'; return;
+      }
+      try {
+        const r = await SX.api('/admin/treasury/credit-deposit', {method: 'POST', body: JSON.stringify(payload)});
+        out.innerHTML = `<div style="color:var(--accent)">${r.idempotent ? 'Already credited' : 'Credited'} — ${fmtN(r.shares_credited, 4)} shares @ $${fmtN(r.share_price_at_credit, 6)}</div>`;
+        await loadTreasury();
+      } catch (e) { out.innerHTML = `<div style="color:var(--danger)">${e.message}</div>`; }
+    }
+    window.creditDeposit = creditDeposit;
+
+    function loadCurrentTab() {
+      ({
+        system: loadSystem, revenue: loadRevenue, quality: loadQuality,
+        users: loadUsers, subs: loadSubs, referrals: loadReferrals,
+        signals: loadSignals, orders: loadOrders, audit: loadAudit, compliance: loadCompliance,
+        treasury: loadTreasury,
+      })[currentTab]();
+    }
+
+    document.querySelectorAll('#tabs-nav a[data-tab]').forEach(a => {
+      a.addEventListener('click', (e) => { e.preventDefault(); setTab(a.dataset.tab); });
+    });
+
+    (async () => { await loadMe(); setTab('system'); setInterval(loadCurrentTab, 15000); })();
+  </script>
+</body>
+</html>

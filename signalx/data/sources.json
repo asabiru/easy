@@ -1,0 +1,16 @@
+[
+  {"source": "reuters",      "reliability": 95, "type": "wire"},
+  {"source": "bloomberg",    "reliability": 95, "type": "wire"},
+  {"source": "wsj",          "reliability": 90, "type": "newspaper"},
+  {"source": "cnbc",         "reliability": 80, "type": "tv_news"},
+  {"source": "ft",           "reliability": 90, "type": "newspaper"},
+  {"source": "official_pr",  "reliability": 95, "type": "company_release"},
+  {"source": "sec_filing",   "reliability": 100,"type": "regulatory"},
+  {"source": "company_blog", "reliability": 85, "type": "company_release"},
+  {"source": "twitter_ceo",  "reliability": 70, "type": "social"},
+  {"source": "twitter",      "reliability": 40, "type": "social"},
+  {"source": "telegram",     "reliability": 35, "type": "social"},
+  {"source": "rss",          "reliability": 60, "type": "rss"},
+  {"source": "manual_test",  "reliability": 50, "type": "manual"},
+  {"source": "unknown",      "reliability": 30, "type": "unknown"}
+]

@@ -1,0 +1,65 @@
+{
+  "_doc": "Static catalog of news sources SignalX polls. The 'kind' field tells the registry which collector module handles the source. 'reliability' is folded into the same scoring path as data/sources.json. 'cadence_sec' is the desired Celery beat interval.",
+
+  "rss": [
+    {"id": "reuters_business",  "url": "https://www.reutersagency.com/feed/?best-topics=business-finance&post_type=best",  "reliability": 95, "cadence_sec": 30, "tags": ["macro","equities"]},
+    {"id": "reuters_markets",   "url": "https://www.reutersagency.com/feed/?best-topics=markets&post_type=best",            "reliability": 95, "cadence_sec": 30, "tags": ["markets"]},
+    {"id": "bloomberg_top",     "url": "https://feeds.bloomberg.com/markets/news.rss",                                       "reliability": 92, "cadence_sec": 30, "tags": ["markets"]},
+    {"id": "bloomberg_econ",    "url": "https://feeds.bloomberg.com/economics/news.rss",                                      "reliability": 92, "cadence_sec": 60, "tags": ["macro"]},
+    {"id": "ft_companies",      "url": "https://www.ft.com/companies?format=rss",                                             "reliability": 92, "cadence_sec": 60, "tags": ["equities"]},
+    {"id": "wsj_markets",       "url": "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",                                       "reliability": 92, "cadence_sec": 30, "tags": ["markets"]},
+    {"id": "wsj_companies",     "url": "https://feeds.a.dj.com/rss/RSSWSJD.xml",                                              "reliability": 90, "cadence_sec": 60, "tags": ["equities"]},
+    {"id": "cnbc_top",          "url": "https://www.cnbc.com/id/100003114/device/rss/rss.html",                               "reliability": 85, "cadence_sec": 30, "tags": ["equities"]},
+    {"id": "cnbc_business",     "url": "https://www.cnbc.com/id/10001147/device/rss/rss.html",                                "reliability": 85, "cadence_sec": 30, "tags": ["equities"]},
+    {"id": "marketwatch_top",   "url": "https://feeds.content.dowjones.io/public/rss/mw_topstories",                           "reliability": 78, "cadence_sec": 30, "tags": ["equities"]},
+    {"id": "seekingalpha_top",  "url": "https://seekingalpha.com/feed.xml",                                                    "reliability": 70, "cadence_sec": 60, "tags": ["equities"]},
+    {"id": "yahoo_finance",     "url": "https://finance.yahoo.com/news/rssindex",                                              "reliability": 70, "cadence_sec": 60, "tags": ["equities"]},
+    {"id": "benzinga_top",      "url": "https://www.benzinga.com/feed",                                                        "reliability": 65, "cadence_sec": 30, "tags": ["equities"]},
+    {"id": "businesswire_us",   "url": "https://www.businesswire.com/portal/site/home/news/?vnsId=31415",                       "reliability": 88, "cadence_sec": 30, "tags": ["press_release"]},
+    {"id": "prnewswire_us",     "url": "https://www.prnewswire.com/rss/news-releases-list.rss",                                "reliability": 85, "cadence_sec": 30, "tags": ["press_release"]},
+    {"id": "globenewswire_us",  "url": "https://www.globenewswire.com/RssFeed/orgclass/1/feedTitle/GlobeNewswire%20-%20News%20about%20Public%20Companies", "reliability": 85, "cadence_sec": 30, "tags": ["press_release"]}
+  ],
+
+  "sec_edgar": [
+    {"id": "edgar_8k",  "form": "8-K",  "url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=8-K&company=&dateb=&owner=include&count=40&output=atom",  "reliability": 95, "cadence_sec": 60},
+    {"id": "edgar_10q", "form": "10-Q", "url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=10-Q&company=&dateb=&owner=include&count=40&output=atom", "reliability": 95, "cadence_sec": 120},
+    {"id": "edgar_13d", "form": "13D",  "url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=13D&company=&dateb=&owner=include&count=40&output=atom",  "reliability": 95, "cadence_sec": 120}
+  ],
+
+  "macro_energy": [
+    {"id": "eia_petroleum",   "url": "https://www.eia.gov/rss/press_rss.xml",                                                  "reliability": 90, "cadence_sec": 300, "tags": ["energy","oil","gas"]},
+    {"id": "eia_natgas",      "url": "https://www.eia.gov/naturalgas/weekly/feed.xml",                                          "reliability": 90, "cadence_sec": 300, "tags": ["energy","natgas"]},
+    {"id": "opec_news",       "url": "https://www.opec.org/opec_web/en/press_room/rss.xml",                                     "reliability": 90, "cadence_sec": 300, "tags": ["energy","oil","opec"]}
+  ],
+
+  "stocktwits": {
+    "id": "stocktwits_cashtags",
+    "endpoint": "https://api.stocktwits.com/api/2/streams/symbol/{symbol}.json",
+    "reliability": 40,
+    "cadence_sec": 60,
+    "enabled": false,
+    "_doc": "Disabled by default — enable per deploy after StockTwits rate-limit and posture is validated. Polled symbols come from companies.json (equities only)."
+  },
+
+  "reddit": [
+    {"id": "reddit_wsb",       "url": "https://www.reddit.com/r/wallstreetbets/.rss",  "reliability": 30, "cadence_sec": 60},
+    {"id": "reddit_stocks",    "url": "https://www.reddit.com/r/stocks/.rss",          "reliability": 35, "cadence_sec": 60},
+    {"id": "reddit_investing", "url": "https://www.reddit.com/r/investing/.rss",       "reliability": 40, "cadence_sec": 60},
+    {"id": "reddit_energy",    "url": "https://www.reddit.com/r/energy/.rss",          "reliability": 35, "cadence_sec": 120},
+    {"id": "reddit_options",   "url": "https://www.reddit.com/r/options/.rss",         "reliability": 35, "cadence_sec": 60}
+  ],
+
+  "bluesky": [
+    {"id": "bluesky_finance_list", "list_uri": "at://did:plc:placeholder/app.bsky.graph.list/finance", "reliability": 60, "cadence_sec": 30}
+  ],
+
+  "mastodon": [
+    {"id": "mastodon_finance",  "instance": "https://mastodon.social", "tag": "finance",   "reliability": 50, "cadence_sec": 60},
+    {"id": "mastodon_economy",  "instance": "https://mastodon.social", "tag": "economy",   "reliability": 50, "cadence_sec": 60},
+    {"id": "mastodon_oil",      "instance": "https://mastodon.social", "tag": "oilgas",    "reliability": 50, "cadence_sec": 120}
+  ],
+
+  "discord_webhook": [
+    {"id": "discord_default", "shared_secret_env": "DISCORD_WEBHOOK_SECRET", "reliability": 50}
+  ]
+}

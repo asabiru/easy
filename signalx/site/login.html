@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sign in · SignalX</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/panel.css" />
+  <style>
+    body { display: flex; align-items: center; justify-content: center; min-height: 100vh;
+      background: radial-gradient(50% 50% at 50% 30%, rgba(74,222,128,0.12), transparent 70%), #07080d; }
+    .auth-card { width: 380px; max-width: 92vw; padding: 28px 28px 24px; border: 1px solid var(--line);
+      border-radius: 16px; background: linear-gradient(180deg, rgba(20,24,38,0.6), rgba(13,16,25,0.6)); }
+    .auth-card h1 { font-size: 18px; margin: 0 0 18px; display: flex; align-items: center; gap: 10px; }
+    .auth-card .dot { width: 24px; height: 24px; border-radius: 6px;
+      background: linear-gradient(120deg, #4ade80, #38bdf8); color: #071018; display: inline-flex;
+      align-items: center; justify-content: center; font-weight: 700; }
+    .auth-card form { display: grid; gap: 12px; }
+    .auth-card .toggle { font-size: 12px; color: var(--text-dim); margin-top: 14px; text-align: center; }
+    .auth-card .toggle a { color: var(--accent); cursor: pointer; }
+    .err { color: #fca5a5; font-size: 13px; min-height: 18px; }
+  </style>
+</head>
+<body>
+  <div class="auth-card">
+    <h1><span class="dot">S</span> SignalX</h1>
+    <h2 id="title" style="font-size:22px;margin:0 0 16px;">Sign in</h2>
+    <form id="form">
+      <input id="full_name" placeholder="Full name" style="display:none" />
+      <input id="email" type="email" required placeholder="Email" />
+      <input id="password" type="password" required placeholder="Password (min 8 chars)" minlength="8" />
+      <button type="submit" class="btn-primary" style="padding:10px;">Continue</button>
+      <div id="err" class="err"></div>
+    </form>
+    <div class="toggle">
+      <span id="hint">No account?</span>
+      <a id="toggle">Create one</a>
+    </div>
+  </div>
+
+  <script src="/assets/config.js"></script>
+  <script src="/assets/panel.js"></script>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const ret = params.get('return') || '/app.html';
+    let mode = params.get('mode') === 'register' ? 'register' : 'login';
+
+    function render() {
+      document.getElementById('title').textContent = mode === 'login' ? 'Sign in' : 'Create account';
+      document.getElementById('full_name').style.display = mode === 'register' ? 'block' : 'none';
+      document.getElementById('hint').textContent = mode === 'login' ? 'No account?' : 'Already have one?';
+      document.getElementById('toggle').textContent = mode === 'login' ? 'Create one' : 'Sign in';
+    }
+    render();
+
+    document.getElementById('toggle').addEventListener('click', () => {
+      mode = mode === 'login' ? 'register' : 'login';
+      render();
+    });
+
+    document.getElementById('form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const err = document.getElementById('err');
+      err.textContent = '';
+      const path = mode === 'login' ? '/auth/login' : '/auth/register';
+      const body = {
+        email: document.getElementById('email').value.trim(),
+        password: document.getElementById('password').value,
+      };
+      if (mode === 'register') body.full_name = document.getElementById('full_name').value.trim() || null;
+      try {
+        window.SX_NO_REDIRECT = true;
+        const r = await SX.api(path, { method: 'POST', body: JSON.stringify(body) });
+        SX.setToken(r.token);
+        // route based on role
+        const target = r.role === 'admin' ? '/admin.html' : r.role === 'manager' ? '/manager.html' : ret;
+        window.location.href = target;
+      } catch (ex) {
+        err.textContent = ex.message;
+      }
+    });
+  </script>
+</body>
+</html>

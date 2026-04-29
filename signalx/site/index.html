@@ -1,0 +1,555 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SignalX — Event-driven alpha for crypto stock perpetuals</title>
+  <meta name="description" content="Event-driven trading signals for tokenized stock perpetual futures. Two tracks: investor IB capital introduction and a retail auto-trade bot. We never hold your money." />
+  <link rel="icon" type="image/svg+xml" href="/assets/brand/mark.svg" />
+  <link rel="preconnect" href="https://cdn.tailwindcss.com" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #07080d;
+      --bg-2: #0d1019;
+      --line: #1c2031;
+      --accent: #4ade80;
+      --accent-2: #38bdf8;
+      --accent-3: #f472b6;
+      --text: #e5e7eb;
+      --text-dim: #9ca3af;
+    }
+    html, body { background: var(--bg); color: var(--text); font-family: 'Inter', system-ui, sans-serif; }
+    .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+
+    .hero-bg {
+      background:
+        radial-gradient(60% 50% at 50% 0%, rgba(74, 222, 128, 0.12) 0%, rgba(7, 8, 13, 0) 60%),
+        radial-gradient(40% 40% at 80% 20%, rgba(56, 189, 248, 0.10) 0%, rgba(7, 8, 13, 0) 60%),
+        radial-gradient(40% 40% at 20% 30%, rgba(244, 114, 182, 0.08) 0%, rgba(7, 8, 13, 0) 60%);
+    }
+    .grid-bg {
+      background-image:
+        linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
+      background-size: 56px 56px;
+      mask-image: radial-gradient(70% 60% at 50% 30%, #000 0%, transparent 80%);
+      -webkit-mask-image: radial-gradient(70% 60% at 50% 30%, #000 0%, transparent 80%);
+    }
+    .glass {
+      background: linear-gradient(180deg, rgba(20,24,38,0.6), rgba(13,16,25,0.6));
+      border: 1px solid var(--line);
+      backdrop-filter: blur(8px);
+    }
+    .accent { color: var(--accent); }
+    .accent-grad {
+      background: linear-gradient(120deg, #4ade80 0%, #38bdf8 50%, #f472b6 100%);
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    .ring-grad {
+      background: linear-gradient(120deg, rgba(74,222,128,0.5), rgba(56,189,248,0.5), rgba(244,114,182,0.5));
+      padding: 1px; border-radius: 16px;
+    }
+    .pulse-dot::after {
+      content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+      background: var(--accent); margin-left: 8px; box-shadow: 0 0 0 0 rgba(74,222,128,0.7);
+      animation: pulse 1.6s infinite;
+    }
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(74,222,128,0.7); }
+      70% { box-shadow: 0 0 0 12px rgba(74,222,128,0); }
+      100% { box-shadow: 0 0 0 0 rgba(74,222,128,0); }
+    }
+    .ticker {
+      display: flex; gap: 32px; white-space: nowrap; animation: scroll 40s linear infinite;
+    }
+    @keyframes scroll {
+      from { transform: translateX(0); }
+      to { transform: translateX(-50%); }
+    }
+    .fade-in { animation: fadeIn 0.6s ease-out both; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+    .btn-primary { background: linear-gradient(120deg, #4ade80, #38bdf8); color: #071018; font-weight: 600; }
+    .btn-primary:hover { filter: brightness(1.08); }
+    .btn-ghost { background: rgba(255,255,255,0.04); border: 1px solid var(--line); color: var(--text); }
+    .btn-ghost:hover { background: rgba(255,255,255,0.08); }
+    .nav-link { color: var(--text-dim); }
+    .nav-link:hover { color: var(--text); }
+
+    .price-card { transition: transform .25s ease, border-color .25s ease; }
+    .price-card:hover { transform: translateY(-4px); border-color: rgba(74,222,128,0.4); }
+  </style>
+</head>
+<body class="antialiased">
+  <!-- top nav -->
+  <header class="fixed top-0 inset-x-0 z-40 backdrop-blur-md bg-[#07080d]/70 border-b border-[#1c2031]">
+    <div class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+      <a href="/" class="flex items-center gap-2 group" aria-label="SignalX">
+        <img src="/assets/brand/mark.svg" alt="" class="w-7 h-7" />
+        <img src="/assets/brand/wordmark.svg" alt="SignalX" class="h-6 hidden sm:block" />
+        <span class="font-semibold tracking-tight sm:hidden">SignalX</span>
+      </a>
+      <nav class="hidden md:flex items-center gap-8 text-sm">
+        <a href="#how" class="nav-link">How it works</a>
+        <a href="#bot" class="nav-link">Auto-Trade Bot</a>
+        <a href="#investors" class="nav-link">For Investors</a>
+        <a href="#pricing" class="nav-link">Pricing</a>
+        <a href="#faq" class="nav-link">FAQ</a>
+      </nav>
+      <div class="flex items-center gap-3 text-sm">
+        <a href="/login.html" class="nav-link hidden sm:inline">Log in</a>
+        <a href="#bot" class="px-4 py-2 rounded-lg btn-primary">Start free</a>
+      </div>
+    </div>
+  </header>
+
+  <!-- hero -->
+  <section class="relative pt-36 pb-24 hero-bg overflow-hidden">
+    <div class="absolute inset-0 grid-bg pointer-events-none"></div>
+    <div class="relative max-w-7xl mx-auto px-6">
+      <div class="flex items-center gap-3 mb-6 fade-in">
+        <span class="text-xs uppercase tracking-widest mono text-[#9ca3af]">v0.1 · MVP live</span>
+        <span class="text-xs uppercase tracking-widest mono text-emerald-400 pulse-dot">Sandbox trading</span>
+      </div>
+      <h1 class="text-5xl md:text-7xl font-extrabold leading-[1.05] tracking-tight max-w-5xl fade-in">
+        Sleep through the news.<br />
+        <span class="accent-grad">Wake up to wins.</span>
+      </h1>
+      <p class="mt-6 max-w-2xl text-lg text-[#cbd5e1] fade-in">
+        Event-driven trading signals for tokenized stock perpetuals — <span class="mono">NVDA</span>, <span class="mono">TSLA</span>, <span class="mono">XOM</span>, <span class="mono">CVX</span>, <span class="mono">SHEL</span> and 25 more.
+        We watch the wires, score every event for fake-news risk, and trade through <strong>your own exchange account</strong> in &lt;2 seconds. We never hold your money.
+      </p>
+      <div class="mt-10 flex flex-wrap gap-4 fade-in">
+        <a href="#bot" class="px-6 py-3 rounded-xl btn-primary">Get the Auto-Trade Bot</a>
+        <a href="#investors" class="px-6 py-3 rounded-xl btn-ghost">Apply as Investor</a>
+        <a href="/app.html" class="px-6 py-3 rounded-xl btn-ghost">Open dashboard →</a>
+      </div>
+      <div class="mt-12 flex items-center gap-6 text-sm text-[#9ca3af] fade-in flex-wrap">
+        <span class="flex items-center gap-2"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>No custody · trade-only API key</span>
+        <span class="flex items-center gap-2"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>7-day paper-mode default</span>
+        <span class="flex items-center gap-2"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>14-day money-back</span>
+      </div>
+
+      <!-- Anti-pump transparency rail.
+           Live numbers from /signals/filter-stats — fake-risk filter,
+           per-tier visibility, signals dropped today. Honest by default. -->
+      <div id="anti-pump-rail" class="mt-10 grid grid-cols-2 md:grid-cols-4 gap-3 fade-in">
+        <div class="glass rounded-xl px-4 py-3">
+          <div class="mono text-[10px] uppercase tracking-widest text-[#9ca3af]">Signals filtered (24h)</div>
+          <div id="ap-filtered" class="text-2xl font-semibold mt-1">—</div>
+          <div class="mono text-[11px] text-[#9ca3af]">noise removed before reaching you</div>
+        </div>
+        <div class="glass rounded-xl px-4 py-3">
+          <div class="mono text-[10px] uppercase tracking-widest text-[#9ca3af]">Visible signals (24h)</div>
+          <div id="ap-visible" class="text-2xl font-semibold mt-1">—</div>
+          <div class="mono text-[11px] text-[#9ca3af]">passed our fake-risk gate</div>
+        </div>
+        <div class="glass rounded-xl px-4 py-3">
+          <div class="mono text-[10px] uppercase tracking-widest text-[#9ca3af]">7-day win rate</div>
+          <div id="ap-winrate" class="text-2xl font-semibold mt-1">—</div>
+          <div class="mono text-[11px] text-[#9ca3af]">not a guarantee — past 7 days</div>
+        </div>
+        <div class="glass rounded-xl px-4 py-3">
+          <div class="mono text-[10px] uppercase tracking-widest text-[#9ca3af]">Fake-risk cap</div>
+          <div id="ap-cap" class="text-2xl font-semibold mt-1">≤ 30</div>
+          <div class="mono text-[11px] text-[#9ca3af]">strictest tier on this page</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- live ticker -->
+  <section class="py-4 border-y border-[#1c2031] bg-[#0a0c14] overflow-hidden">
+    <div class="ticker mono text-sm text-[#9ca3af]">
+      <span>NVDAUSDT <span class="text-emerald-400">+1.82%</span></span>
+      <span>TSLAUSDT <span class="text-rose-400">-0.41%</span></span>
+      <span>XOMUSDT <span class="text-emerald-400">+0.93%</span></span>
+      <span>CVXUSDT <span class="text-emerald-400">+0.62%</span></span>
+      <span>AAPLUSDT <span class="text-emerald-400">+0.18%</span></span>
+      <span>MSFTUSDT <span class="text-rose-400">-0.07%</span></span>
+      <span>AMZNUSDT <span class="text-emerald-400">+0.74%</span></span>
+      <span>METAUSDT <span class="text-emerald-400">+1.24%</span></span>
+      <span>GOOGLUSDT <span class="text-rose-400">-0.32%</span></span>
+      <span>SHELUSDT <span class="text-emerald-400">+1.05%</span></span>
+      <span>FSLRUSDT <span class="text-emerald-400">+2.21%</span></span>
+      <span>NVDAUSDT <span class="text-emerald-400">+1.82%</span></span>
+      <span>TSLAUSDT <span class="text-rose-400">-0.41%</span></span>
+      <span>XOMUSDT <span class="text-emerald-400">+0.93%</span></span>
+      <span>CVXUSDT <span class="text-emerald-400">+0.62%</span></span>
+      <span>AAPLUSDT <span class="text-emerald-400">+0.18%</span></span>
+      <span>MSFTUSDT <span class="text-rose-400">-0.07%</span></span>
+      <span>AMZNUSDT <span class="text-emerald-400">+0.74%</span></span>
+      <span>METAUSDT <span class="text-emerald-400">+1.24%</span></span>
+      <span>GOOGLUSDT <span class="text-rose-400">-0.32%</span></span>
+    </div>
+  </section>
+
+  <!-- how it works -->
+  <section id="how" class="py-24 max-w-7xl mx-auto px-6">
+    <div class="max-w-3xl">
+      <p class="mono text-xs uppercase tracking-widest text-[#9ca3af]">How it works</p>
+      <h2 class="text-3xl md:text-5xl font-bold mt-2 tracking-tight">Three steps. Two seconds. No custody.</h2>
+    </div>
+    <div class="grid md:grid-cols-3 gap-6 mt-12">
+      <div class="glass rounded-2xl p-6">
+        <div class="text-emerald-400 mono text-sm">01 / Detect</div>
+        <h3 class="text-xl font-semibold mt-2">Multi-source ingest</h3>
+        <p class="text-sm text-[#9ca3af] mt-2">Reuters, Bloomberg, WSJ, CNBC, SEC EDGAR, EIA, OPEC, X (Twitter), StockTwits, Reddit. Cross-source confirmation in a 90-second window boosts confidence and lowers fake-risk.</p>
+      </div>
+      <div class="glass rounded-2xl p-6">
+        <div class="text-sky-400 mono text-sm">02 / Score</div>
+        <h3 class="text-xl font-semibold mt-2">Anti-fake engine</h3>
+        <p class="text-sm text-[#9ca3af] mt-2">Each event gets a <span class="mono">fake_risk</span> 0–100. Linguistic markers (PUMP / RUMOR / LEAKED), account reputation, pre-news price action and source reliability all feed in. ≥50 = SKIP.</p>
+      </div>
+      <div class="glass rounded-2xl p-6">
+        <div class="text-pink-400 mono text-sm">03 / Execute</div>
+        <h3 class="text-xl font-semibold mt-2">Your account, our edge</h3>
+        <p class="text-sm text-[#9ca3af] mt-2">Bot places the order on <em>your</em> exchange account via a trade-only API key. Stop-loss, take-profit and a daily-loss kill-switch live in code, not in a UI checkbox.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- bot pricing -->
+  <section id="bot" class="py-24 bg-[#0a0c14] border-y border-[#1c2031]">
+    <div class="max-w-7xl mx-auto px-6">
+      <div class="max-w-3xl">
+        <p class="mono text-xs uppercase tracking-widest text-emerald-400">Auto-Trade Bot · Track B</p>
+        <h2 class="text-3xl md:text-5xl font-bold mt-2 tracking-tight">Pick your tier. <span class="accent-grad">Stay in control.</span></h2>
+        <p class="text-[#9ca3af] mt-4">Every new subscription starts in <strong>paper mode for 7 days</strong>. The kill switch is one click away. We never have withdraw permission on your account.</p>
+      </div>
+      <div id="pricing" class="grid lg:grid-cols-4 gap-5 mt-12">
+        <!-- Manual+ -->
+        <div class="price-card glass rounded-2xl p-6">
+          <div class="text-sm mono text-[#9ca3af]">Manual+</div>
+          <div class="text-4xl font-bold mt-2">$99<span class="text-base text-[#9ca3af]">/mo</span></div>
+          <p class="text-sm text-[#9ca3af] mt-2">Telegram alerts + 1-click execute on your Bybit/Binance.</p>
+          <ul class="text-sm space-y-2 mt-5 text-[#cbd5e1]">
+            <li>· All signals, all symbols</li>
+            <li>· Telegram instant push</li>
+            <li>· One-click order execute</li>
+            <li>· No autopilot</li>
+          </ul>
+          <a href="/signup.html?tier=manual_plus" class="block text-center mt-6 px-4 py-2 rounded-lg btn-ghost">Start free trial</a>
+        </div>
+        <!-- Auto-Lite -->
+        <div class="price-card glass rounded-2xl p-6">
+          <div class="text-sm mono text-[#9ca3af]">Auto-Lite</div>
+          <div class="text-4xl font-bold mt-2">$249<span class="text-base text-[#9ca3af]">/mo</span></div>
+          <p class="text-sm text-[#9ca3af] mt-2">Full autopilot. Fixed sizing. Top-3 signals/day.</p>
+          <ul class="text-sm space-y-2 mt-5 text-[#cbd5e1]">
+            <li>· Fixed 10% / signal</li>
+            <li>· Top-3 daily picks</li>
+            <li>· Daily-loss kill 5%</li>
+            <li>· Email + Telegram report</li>
+          </ul>
+          <a href="/signup.html?tier=auto_lite" class="block text-center mt-6 px-4 py-2 rounded-lg btn-ghost">Choose Auto-Lite</a>
+        </div>
+        <!-- Auto-Pro (highlighted) -->
+        <div class="ring-grad">
+          <div class="rounded-2xl p-6 bg-[#0d1019] price-card">
+            <div class="flex items-center justify-between">
+              <div class="text-sm mono text-emerald-400">Auto-Pro · most popular</div>
+              <span class="text-[10px] mono uppercase bg-emerald-400/10 text-emerald-400 px-2 py-1 rounded">recommended</span>
+            </div>
+            <div class="text-4xl font-bold mt-2">$499<span class="text-base text-[#9ca3af]">/mo</span></div>
+            <p class="text-sm text-[#9ca3af] mt-2">Adaptive sizing by signal_score. All filters. All signals.</p>
+            <ul class="text-sm space-y-2 mt-5 text-[#cbd5e1]">
+              <li>· Adaptive position sizing</li>
+              <li>· Custom min_signal_score, max_fake_risk</li>
+              <li>· Symbol allowlist</li>
+              <li>· Priority Telegram channel</li>
+            </ul>
+            <a href="/signup.html?tier=auto_pro" class="block text-center mt-6 px-4 py-2 rounded-lg btn-primary">Choose Auto-Pro</a>
+          </div>
+        </div>
+        <!-- VIP -->
+        <div class="price-card glass rounded-2xl p-6">
+          <div class="text-sm mono text-[#9ca3af]">VIP</div>
+          <div class="text-4xl font-bold mt-2">$999<span class="text-base text-[#9ca3af]">/mo</span> <span class="block text-sm text-[#9ca3af] mt-1">+ 15% performance fee</span></div>
+          <p class="text-sm text-[#9ca3af] mt-2">Everything in Pro + priority execution + custom risk profile.</p>
+          <ul class="text-sm space-y-2 mt-5 text-[#cbd5e1]">
+            <li>· Front-of-queue execution</li>
+            <li>· Custom risk profile</li>
+            <li>· Monthly performance review</li>
+            <li>· Personal manager</li>
+          </ul>
+          <a href="/signup.html?tier=vip" class="block text-center mt-6 px-4 py-2 rounded-lg btn-ghost">Apply for VIP</a>
+        </div>
+      </div>
+      <p class="text-center text-xs text-[#9ca3af] mt-8 mono">14-day money-back · 7-day paper-mode default · cancel any time</p>
+    </div>
+  </section>
+
+  <!-- universe -->
+  <section class="py-24 max-w-7xl mx-auto px-6">
+    <div class="max-w-3xl">
+      <p class="mono text-xs uppercase tracking-widest text-[#9ca3af]">Universe</p>
+      <h2 class="text-3xl md:text-5xl font-bold mt-2 tracking-tight">35 perpetuals across tech and energy.</h2>
+      <p class="text-[#9ca3af] mt-4">Mega-cap tech for momentum, energy for macro-driven moves. We add new symbols only after they meet our liquidity threshold.</p>
+    </div>
+    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 mt-10 mono text-sm">
+      <div class="glass rounded-lg p-3 text-center">NVDAUSDT</div>
+      <div class="glass rounded-lg p-3 text-center">TSLAUSDT</div>
+      <div class="glass rounded-lg p-3 text-center">AAPLUSDT</div>
+      <div class="glass rounded-lg p-3 text-center">MSFTUSDT</div>
+      <div class="glass rounded-lg p-3 text-center">METAUSDT</div>
+      <div class="glass rounded-lg p-3 text-center">AMZNUSDT</div>
+      <div class="glass rounded-lg p-3 text-center">GOOGLUSDT</div>
+      <div class="glass rounded-lg p-3 text-center">AMDUSDT</div>
+      <div class="glass rounded-lg p-3 text-center">XOMUSDT</div>
+      <div class="glass rounded-lg p-3 text-center">CVXUSDT</div>
+      <div class="glass rounded-lg p-3 text-center">SHELUSDT</div>
+      <div class="glass rounded-lg p-3 text-center">BPUSDT</div>
+      <div class="glass rounded-lg p-3 text-center">COPUSDT</div>
+      <div class="glass rounded-lg p-3 text-center">OXYUSDT</div>
+      <div class="glass rounded-lg p-3 text-center">SLBUSDT</div>
+      <div class="glass rounded-lg p-3 text-center">FSLRUSDT</div>
+      <div class="glass rounded-lg p-3 text-center">ENPHUSDT</div>
+      <div class="glass rounded-lg p-3 text-center">NEEUSDT</div>
+      <div class="glass rounded-lg p-3 text-center text-[#9ca3af]">+17 more</div>
+      <div class="glass rounded-lg p-3 text-center text-[#9ca3af]">live</div>
+    </div>
+  </section>
+
+  <!-- investors track -->
+  <section id="investors" class="py-24 border-y border-[#1c2031] bg-[#0a0c14]">
+    <div class="max-w-7xl mx-auto px-6 grid lg:grid-cols-2 gap-12 items-center">
+      <div>
+        <p class="mono text-xs uppercase tracking-widest text-sky-400">For Investors · Track A</p>
+        <h2 class="text-3xl md:text-5xl font-bold mt-2 tracking-tight">Capital introduction, <span class="accent-grad">not custody.</span></h2>
+        <p class="text-[#9ca3af] mt-4 max-w-xl">Family offices, prop firms and HNW investors trade through <strong>their own exchange account</strong> using SignalX's signals. We earn through exchange IB rev-share and (optionally) performance fees. We never touch your funds.</p>
+        <ul class="space-y-3 mt-6 text-[#cbd5e1]">
+          <li class="flex gap-3"><span class="text-emerald-400">→</span> 20–40 bps IB rev-share with Bybit, Binance, Bitget, Backpack, Aster, Hyperliquid</li>
+          <li class="flex gap-3"><span class="text-emerald-400">→</span> Optional 20% performance fee on managed flow (HWM, white-label RIA partner)</li>
+          <li class="flex gap-3"><span class="text-emerald-400">→</span> Co-investment with prop firms (30/70 to 50/50 P&L split)</li>
+          <li class="flex gap-3"><span class="text-emerald-400">→</span> Strategy licensing for hedge funds and family offices</li>
+        </ul>
+      </div>
+
+      <div class="glass rounded-2xl p-8">
+        <h3 class="text-xl font-semibold">Apply to invest</h3>
+        <p class="text-sm text-[#9ca3af] mt-1">We reply within 24 hours. No automated screening.</p>
+        <form id="investor-form" class="mt-6 grid gap-4">
+          <input required name="name" placeholder="Full name" class="px-3 py-2 rounded-lg bg-[#0d1019] border border-[#1c2031] focus:border-emerald-400 outline-none" />
+          <input required name="email" type="email" placeholder="Email" class="px-3 py-2 rounded-lg bg-[#0d1019] border border-[#1c2031] focus:border-emerald-400 outline-none" />
+          <select name="capital_band" class="px-3 py-2 rounded-lg bg-[#0d1019] border border-[#1c2031] focus:border-emerald-400 outline-none">
+            <option value="lt_100k">&lt; $100k</option>
+            <option value="100k_500k">$100k – $500k</option>
+            <option value="500k_2m" selected>$500k – $2M</option>
+            <option value="2m_10m">$2M – $10M</option>
+            <option value="gt_10m">&gt; $10M</option>
+          </select>
+          <select name="track" class="px-3 py-2 rounded-lg bg-[#0d1019] border border-[#1c2031] focus:border-emerald-400 outline-none">
+            <option value="ib_self_directed" selected>Self-directed via IB link</option>
+            <option value="managed_account">Managed account (SMA)</option>
+            <option value="prop_co_invest">Prop co-investment</option>
+            <option value="licensing">Strategy licensing</option>
+            <option value="other">Other</option>
+          </select>
+          <select name="timeline" class="px-3 py-2 rounded-lg bg-[#0d1019] border border-[#1c2031] focus:border-emerald-400 outline-none">
+            <option value="lt_30d">&lt; 30 days</option>
+            <option value="1_3m" selected>1–3 months</option>
+            <option value="3_6m">3–6 months</option>
+            <option value="research">Just researching</option>
+          </select>
+          <textarea name="message" rows="3" placeholder="Tell us about your mandate (optional)" class="px-3 py-2 rounded-lg bg-[#0d1019] border border-[#1c2031] focus:border-emerald-400 outline-none"></textarea>
+          <button type="submit" class="px-4 py-3 rounded-lg btn-primary">Send application</button>
+          <div id="investor-result" class="text-sm text-emerald-400"></div>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <!-- safety -->
+  <section class="py-24 max-w-7xl mx-auto px-6">
+    <div class="grid lg:grid-cols-3 gap-6">
+      <div class="glass rounded-2xl p-6">
+        <div class="mono text-xs uppercase tracking-widest text-[#9ca3af]">Hard rule #1</div>
+        <h3 class="text-xl font-semibold mt-2">No custody. Ever.</h3>
+        <p class="text-sm text-[#9ca3af] mt-2">Your trade-only API key lives encrypted (Fernet AES). Withdraw permission must be off — we verify on subscribe and reject the key if it's enabled.</p>
+      </div>
+      <div class="glass rounded-2xl p-6">
+        <div class="mono text-xs uppercase tracking-widest text-[#9ca3af]">Hard rule #2</div>
+        <h3 class="text-xl font-semibold mt-2">Three-of-three opt-in for live.</h3>
+        <p class="text-sm text-[#9ca3af] mt-2">Live trading needs the global kill switch ON, your sub flagged live, and the 7-day paper window passed. Any of the three off ⇒ orders stay paper.</p>
+      </div>
+      <div class="glass rounded-2xl p-6">
+        <div class="mono text-xs uppercase tracking-widest text-[#9ca3af]">Hard rule #3</div>
+        <h3 class="text-xl font-semibold mt-2">Daily-loss auto-pause.</h3>
+        <p class="text-sm text-[#9ca3af] mt-2">If realised P&amp;L crosses -5% of starting balance for the day, your sub is paused automatically. You re-enable manually after a cool-down.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- faq -->
+  <section id="faq" class="py-24 max-w-4xl mx-auto px-6">
+    <p class="mono text-xs uppercase tracking-widest text-[#9ca3af]">FAQ</p>
+    <h2 class="text-3xl md:text-5xl font-bold mt-2 tracking-tight">Common questions</h2>
+    <div class="mt-10 space-y-4">
+      <details class="glass rounded-xl p-5"><summary class="cursor-pointer font-medium">How does the bot trade without holding my money?</summary><p class="text-sm text-[#9ca3af] mt-3">You generate a <strong>trade-only</strong> API key on your exchange (no withdraw, IP-whitelisted to our servers) and paste it on subscribe. The bot calls <code class="mono">create_order</code> on your account — that's it. We never have a withdraw permission, ever.</p></details>
+      <details class="glass rounded-xl p-5"><summary class="cursor-pointer font-medium">What's "paper mode"?</summary><p class="text-sm text-[#9ca3af] mt-3">For the first 7 days every new subscription is in paper mode — you see the trades the bot <em>would have made</em> with a simulated $10k balance. No real orders. After that you choose to flip live.</p></details>
+      <details class="glass rounded-xl p-5"><summary class="cursor-pointer font-medium">What if the news is fake?</summary><p class="text-sm text-[#9ca3af] mt-3">Each event is scored 0-100 for fake-risk. Linguistic markers, account age, follower count, presence of an authoritative link, pre-news price action and cross-source confirmation all factor in. Score ≥ 50 ⇒ the bot SKIPs entirely.</p></details>
+      <details class="glass rounded-xl p-5"><summary class="cursor-pointer font-medium">Which exchanges do you support?</summary><p class="text-sm text-[#9ca3af] mt-3">Bybit, Binance, OKX, Backpack, Aster, Hyperliquid (in roll-out). The bot uses <code class="mono">ccxt</code> under the hood, so adding a new venue is a config change, not a rewrite.</p></details>
+      <details class="glass rounded-xl p-5"><summary class="cursor-pointer font-medium">Is this regulated?</summary><p class="text-sm text-[#9ca3af] mt-3">SignalX is a signal &amp; execution-tooling provider — we're not your broker, custodian, or RIA. For Track A managed accounts we partner with white-label RIAs. We never market guaranteed returns.</p></details>
+      <details class="glass rounded-xl p-5"><summary class="cursor-pointer font-medium">What's "Mode B" (managed pool)?</summary><p class="text-sm text-[#9ca3af] mt-3">An optional flow where you deposit USDT (TRC20 / ERC20 / Solana / BSC / TON) into our pooled treasury and we trade it on your behalf. You hold fractional <strong>shares</strong> of the pool priced at NAV; you can request a withdrawal at any time (24h cooldown after deposits). Performance fee 20% above your high-water mark, management fee 2% / year accrued daily. Mode B is currently <strong>off by default</strong> — we open it case-by-case after KYC + a custody-aware risk acknowledgement. <a class="underline" href="/legal/disclosures.html#custody">Read the full disclosures</a>.</p></details>
+    </div>
+  </section>
+
+  <!-- Marketing: top-of-funnel email capture (Growth + Marketing agents).
+       Single field, soft commitment, idempotent backend (POST /leads/subscribe). -->
+  <section id="newsletter" class="max-w-3xl mx-auto px-6 py-16 text-center">
+    <p class="mono text-xs uppercase tracking-widest text-[#9ca3af]">Get a weekly briefing</p>
+    <h2 class="mt-3 text-2xl md:text-3xl font-semibold tracking-tight">
+      The 3 most-traded news events of the week, plus filter-rate stats.
+    </h2>
+    <p class="mt-3 text-[#9ca3af]">
+      No spam. No upsell sequences. Unsubscribe with one click. We mainly
+      send when win-rate or filter-rate moves &gt;3 pts week-over-week.
+    </p>
+    <form id="newsletter-form" class="mt-6 flex flex-col sm:flex-row gap-3 max-w-md mx-auto" onsubmit="return submitNewsletter(event)">
+      <input type="email" name="email" required placeholder="you@domain.com"
+        class="flex-1 px-4 py-3 rounded-lg bg-[#0f1425] border border-[#1c2031] text-white placeholder-[#9ca3af] focus:outline-none focus:border-emerald-500" />
+      <button type="submit" class="px-5 py-3 rounded-lg bg-emerald-500 text-black font-medium hover:bg-emerald-400">Subscribe</button>
+    </form>
+    <p id="newsletter-status" class="mt-3 text-sm text-[#9ca3af]"></p>
+  </section>
+
+  <!-- footer -->
+  <footer class="border-t border-[#1c2031] py-10 text-sm text-[#9ca3af]">
+    <div class="max-w-7xl mx-auto px-6 flex flex-wrap justify-between gap-6">
+      <div>
+        <div class="font-semibold text-white mb-2">SignalX</div>
+        <p>Event-driven trading signals for crypto stock perpetuals. v0.1 MVP.</p>
+        <p class="mt-2">© 2025 SignalX. Not financial advice.</p>
+      </div>
+      <div class="flex gap-10 flex-wrap">
+        <div>
+          <div class="text-white font-medium mb-2">Product</div>
+          <a href="#bot" class="block">Auto-Trade Bot</a>
+          <a href="#investors" class="block">Investor Track</a>
+          <a href="/app.html" class="block">Client Dashboard</a>
+        </div>
+        <div>
+          <div class="text-white font-medium mb-2">Resources</div>
+          <a href="#how" class="block">How it works</a>
+          <a href="#faq" class="block">FAQ</a>
+          <a href="https://github.com/asabiru/easy" class="block">GitHub</a>
+        </div>
+        <div>
+          <div class="text-white font-medium mb-2">Legal</div>
+          <a href="/legal/disclosures.html" class="block">Risk disclosures</a>
+          <a href="/legal/disclosures.html#geo" class="block">Geography &amp; sanctions</a>
+          <a href="/legal/disclosures.html#privacy" class="block">Privacy</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="max-w-7xl mx-auto px-6 mt-10 pt-6 border-t border-[#1c2031]">
+      <p class="text-xs leading-relaxed">
+        <strong class="text-[#cbd5e1]">Risk disclosure:</strong>
+        Trading perpetual futures involves substantial risk of loss and is
+        not suitable for every investor. SignalX is a signal-and-execution
+        tooling provider; we are not a broker, custodian, RIA, or
+        money-transmitter. We do not custody client funds. Past
+        performance does not guarantee future results. The
+        founder's quotation as a Russian Federal Financial Markets
+        specialist (broker / dealer / portfolio management /
+        forex-dealer) is a personal qualification — it does not imply
+        Bank of Russia licensing of the SignalX entity itself.
+        Service is restricted in OFAC-sanctioned jurisdictions and
+        FATF-greylisted regions. See
+        <a class="text-emerald-400" href="/legal/disclosures.html">full disclosures</a>.
+      </p>
+    </div>
+  </footer>
+
+  <script>
+    // Anti-pump rail — pull live filter stats + win rate.
+    // Anonymous tier: only fake_risk ≤ 0.30 signals are exposed.
+    (async () => {
+      const api = window.SIGNALX_API || '';
+      try {
+        const [stats, perf] = await Promise.all([
+          fetch(api + '/signals/filter-stats').then(r => r.ok ? r.json() : null),
+          fetch(api + '/performance/summary').then(r => r.ok ? r.json() : null),
+        ]);
+        if (stats) {
+          document.getElementById('ap-filtered').textContent =
+            stats.signals_filtered + ' (' + stats.filtered_pct + '%)';
+          document.getElementById('ap-visible').textContent = stats.signals_visible;
+          // fake_risk is on the 0–100 scale; show it that way.
+          document.getElementById('ap-cap').textContent = '≤ ' + stats.fake_risk_cap;
+        }
+        if (perf && typeof perf.win_rate_pct === 'number') {
+          document.getElementById('ap-winrate').textContent = perf.win_rate_pct.toFixed(1) + '%';
+        }
+      } catch (err) { /* offline demo — leave em-dashes */ }
+    })();
+
+    // Investor application form
+    const form = document.getElementById('investor-form');
+    if (form) form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(form);
+      const payload = Object.fromEntries(fd.entries());
+      const out = document.getElementById('investor-result');
+      out.textContent = 'Submitting…';
+      out.className = 'text-sm text-[#9ca3af]';
+      try {
+        const res = await fetch((window.SIGNALX_API || '') + '/investors/onboarding-intent', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        out.textContent = 'Thanks — we received your application. We will reply within 24 hours.';
+        out.className = 'text-sm text-emerald-400';
+        form.reset();
+      } catch (err) {
+        // Demo-mode fallback when API is not reachable from the static site.
+        out.textContent = 'Application captured (offline demo). Email us at investors@signalx.app to follow up.';
+        out.className = 'text-sm text-amber-400';
+      }
+    });
+
+    // Newsletter capture (Marketing/Growth). Pulls referral & utm context
+    // from the URL so we can attribute lead-magnet → conversion later.
+    function submitNewsletter(e) {
+      e.preventDefault();
+      const params = new URLSearchParams(location.search);
+      const form = document.getElementById('newsletter-form');
+      const status = document.getElementById('newsletter-status');
+      const email = form.elements['email'].value.trim();
+      const payload = {
+        email,
+        referral_code: params.get('ref') || undefined,
+        utm_source: params.get('utm_source') || undefined,
+        utm_medium: params.get('utm_medium') || undefined,
+        utm_campaign: params.get('utm_campaign') || undefined,
+      };
+      status.textContent = 'Subscribing…';
+      status.className = 'mt-3 text-sm text-[#9ca3af]';
+      fetch((window.SIGNALX_API || '') + '/leads/subscribe', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload),
+      }).then(async (r) => {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const j = await r.json();
+        status.textContent = j.duplicate
+          ? 'You\u2019re already on the list \u2014 thanks.'
+          : 'Subscribed. Confirmation email coming shortly.';
+        status.className = 'mt-3 text-sm text-emerald-400';
+        if (!j.duplicate) form.reset();
+      }).catch(() => {
+        status.textContent = 'Could not subscribe right now. Please try again later.';
+        status.className = 'mt-3 text-sm text-amber-400';
+      });
+      return false;
+    }
+  </script>
+</body>
+</html>

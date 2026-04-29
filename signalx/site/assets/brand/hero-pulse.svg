@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 280" width="100%" height="280" role="img" aria-label="Live volatility pulse">
+  <defs>
+    <linearGradient id="hero-grad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#7c5cff" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#7c5cff"/>
+      <stop offset="1" stop-color="#19b8ff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="hero-fill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7c5cff" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#19b8ff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Faint horizontal grid -->
+  <g stroke="#1f2630" stroke-width="1">
+    <line x1="0" y1="60"  x2="800" y2="60"/>
+    <line x1="0" y1="120" x2="800" y2="120"/>
+    <line x1="0" y1="180" x2="800" y2="180"/>
+    <line x1="0" y1="240" x2="800" y2="240"/>
+  </g>
+
+  <!-- Pulsing price-action wave -->
+  <path id="wave" fill="url(#hero-fill)" stroke="url(#hero-grad)" stroke-width="2"
+        d="M0 180 L60 165 L120 178 L180 130 L240 145 L300 170 L360 90 L420 110 L480 145 L540 95 L600 130 L660 180 L720 150 L800 165 L800 280 L0 280 Z">
+    <animate attributeName="d" dur="8s" repeatCount="indefinite"
+             values="
+M0 180 L60 165 L120 178 L180 130 L240 145 L300 170 L360 90 L420 110 L480 145 L540 95 L600 130 L660 180 L720 150 L800 165 L800 280 L0 280 Z;
+M0 175 L60 170 L120 160 L180 145 L240 130 L300 165 L360 100 L420 130 L480 140 L540 105 L600 145 L660 175 L720 140 L800 170 L800 280 L0 280 Z;
+M0 180 L60 165 L120 178 L180 130 L240 145 L300 170 L360 90 L420 110 L480 145 L540 95 L600 130 L660 180 L720 150 L800 165 L800 280 L0 280 Z"/>
+  </path>
+
+  <!-- Signal dot (event = news arrival) -->
+  <circle cx="360" cy="90" r="6" fill="#22c55e">
+    <animate attributeName="r" values="6;12;6" dur="2.4s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="1;0.3;1" dur="2.4s" repeatCount="indefinite"/>
+  </circle>
+  <text x="370" y="78" font-family="'JetBrains Mono', ui-monospace, monospace" font-size="11" fill="#22c55e">+1.2% NVDA · guidance_raised</text>
+</svg>

@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>SignalX Mini App</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="stylesheet" href="/assets/panel.css" />
+  <style>
+    :root {
+      /* Telegram theme params override our defaults when running inside Telegram. */
+      --tg-bg: var(--bg-1, #0b0d10);
+      --tg-text: var(--text, #e7eaee);
+    }
+    body { background: var(--tg-bg); color: var(--tg-text); margin: 0; padding: 12px; font-family: 'Inter', system-ui, sans-serif; }
+    .miniapp-shell { max-width: 480px; margin: 0 auto; }
+    .signal-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 14px; margin-bottom: 10px; }
+    .signal-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+    .signal-action { font-weight: 700; font-size: 16px; padding: 4px 10px; border-radius: 6px; }
+    .signal-action.long { background: rgba(34,197,94,0.16); color: #4ade80; }
+    .signal-action.short { background: rgba(239,68,68,0.16); color: #f87171; }
+    .signal-action.watch { background: rgba(250,204,21,0.16); color: #facc15; }
+    .signal-ticker { font-weight: 600; font-size: 18px; }
+    .signal-meta { font-size: 12px; color: #9aa1ac; }
+    .signal-reason { margin-top: 6px; font-size: 13px; line-height: 1.4; color: #c8cdd4; }
+    .empty { color: #9aa1ac; text-align: center; padding: 30px 0; }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+    .header h1 { margin: 0; font-size: 18px; font-weight: 700; }
+    .pill { font-size: 11px; padding: 2px 8px; border-radius: 8px; background: rgba(124,150,255,0.16); color: #93acff; }
+  </style>
+</head>
+<body>
+  <div class="miniapp-shell">
+    <div class="header">
+      <h1>SignalX</h1>
+      <span class="pill" id="universe-count">— signals/24h</span>
+    </div>
+    <div id="signals-list">
+      <div class="empty">Loading…</div>
+    </div>
+  </div>
+
+  <script src="/assets/config.js"></script>
+  <script>
+    // Telegram Mini App SDK — when present, harmonize with native theme.
+    const tg = window.Telegram && window.Telegram.WebApp;
+    if (tg) {
+      tg.ready();
+      tg.expand();
+      const params = tg.themeParams || {};
+      if (params.bg_color) document.documentElement.style.setProperty('--tg-bg', params.bg_color);
+      if (params.text_color) document.documentElement.style.setProperty('--tg-text', params.text_color);
+      tg.MainButton.setText('Connect TON wallet').show().onClick(() => {
+        tg.openLink('https://tonkeeper.com/?ref=signalx');
+      });
+    }
+
+    function actionClass(a) {
+      a = (a || '').toLowerCase();
+      if (a === 'long' || a === 'buy') return 'long';
+      if (a === 'short' || a === 'sell') return 'short';
+      return 'watch';
+    }
+
+    async function loadSignals() {
+      try {
+        const r = await fetch((window.SX_API_BASE || '') + '/signals?limit=20');
+        const sigs = await r.json();
+        const list = document.getElementById('signals-list');
+        document.getElementById('universe-count').textContent = `${sigs.length} signals shown`;
+        if (!sigs.length) {
+          list.innerHTML = '<div class="empty">No signals yet. We post 5–15 per day.</div>';
+          return;
+        }
+        list.innerHTML = sigs.map(s => `
+          <div class="signal-card">
+            <div class="signal-head">
+              <span class="signal-action ${actionClass(s.action)}">${s.action || '?'}</span>
+              <span class="signal-ticker">${s.ticker || '?'}</span>
+              <span class="signal-meta">· score ${s.signal_score ?? '—'} · ${new Date(s.created_at).toLocaleString()}</span>
+            </div>
+            <div class="signal-reason">${(s.reason || '').slice(0, 240)}</div>
+          </div>
+        `).join('');
+      } catch (e) {
+        document.getElementById('signals-list').innerHTML = `<div class="empty">Error loading: ${e.message}</div>`;
+      }
+    }
+
+    loadSignals();
+    setInterval(loadSignals, 15000);
+  </script>
+</body>
+</html>

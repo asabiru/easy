@@ -1,0 +1,47 @@
+{
+  "_doc": "Known-good X (Twitter) handles for SignalX news intel. `tier`: 'official' (company / regulator), 'press' (verified financial press), 'wire' (newswire), 'analyst' (sell-side / buy-side commentary). 'reliability' is a 0-100 base score the source_reliability module folds into the signal pipeline.",
+  "handles": [
+    {"handle": "DeItaone",        "tier": "wire",     "reliability": 90, "covers": ["macro","earnings","central_banks","energy"]},
+    {"handle": "FirstSquawk",     "tier": "wire",     "reliability": 88, "covers": ["macro","earnings","energy","central_banks"]},
+    {"handle": "Reuters",         "tier": "press",    "reliability": 95, "covers": ["all"]},
+    {"handle": "ReutersBiz",      "tier": "press",    "reliability": 95, "covers": ["all"]},
+    {"handle": "business",        "tier": "press",    "reliability": 92, "covers": ["all"]},
+    {"handle": "CNBC",            "tier": "press",    "reliability": 85, "covers": ["all"]},
+    {"handle": "WSJ",             "tier": "press",    "reliability": 92, "covers": ["all"]},
+    {"handle": "FT",              "tier": "press",    "reliability": 92, "covers": ["all"]},
+    {"handle": "MarketWatch",     "tier": "press",    "reliability": 75, "covers": ["all"]},
+    {"handle": "elonmusk",        "tier": "official", "reliability": 70, "covers": ["TSLA"]},
+    {"handle": "Tesla",           "tier": "official", "reliability": 90, "covers": ["TSLA"]},
+    {"handle": "nvidia",          "tier": "official", "reliability": 90, "covers": ["NVDA"]},
+    {"handle": "Apple",           "tier": "official", "reliability": 92, "covers": ["AAPL"]},
+    {"handle": "Microsoft",       "tier": "official", "reliability": 90, "covers": ["MSFT"]},
+    {"handle": "Google",          "tier": "official", "reliability": 88, "covers": ["GOOGL"]},
+    {"handle": "Amazon",          "tier": "official", "reliability": 88, "covers": ["AMZN"]},
+    {"handle": "Meta",            "tier": "official", "reliability": 88, "covers": ["META"]},
+    {"handle": "AMD",             "tier": "official", "reliability": 88, "covers": ["AMD"]},
+    {"handle": "Netflix",         "tier": "official", "reliability": 85, "covers": ["NFLX"]},
+    {"handle": "coinbase",        "tier": "official", "reliability": 85, "covers": ["COIN"]},
+    {"handle": "ExxonMobil",      "tier": "official", "reliability": 90, "covers": ["XOM"]},
+    {"handle": "Chevron",         "tier": "official", "reliability": 90, "covers": ["CVX"]},
+    {"handle": "Shell",           "tier": "official", "reliability": 90, "covers": ["SHEL"]},
+    {"handle": "BP_plc",          "tier": "official", "reliability": 90, "covers": ["BP"]},
+    {"handle": "ConocoPhillips",  "tier": "official", "reliability": 88, "covers": ["COP"]},
+    {"handle": "Oxy",             "tier": "official", "reliability": 88, "covers": ["OXY"]},
+    {"handle": "slb",             "tier": "official", "reliability": 85, "covers": ["SLB"]},
+    {"handle": "NextEraEnergy",   "tier": "official", "reliability": 88, "covers": ["NEE"]},
+    {"handle": "FirstSolar",      "tier": "official", "reliability": 88, "covers": ["FSLR"]},
+    {"handle": "Enphase",         "tier": "official", "reliability": 85, "covers": ["ENPH"]},
+    {"handle": "OPECSecretariat", "tier": "official", "reliability": 90, "covers": ["XOM","CVX","COP","OXY","SHEL","BP"]},
+    {"handle": "EIAgov",          "tier": "official", "reliability": 88, "covers": ["XOM","CVX","COP","OXY","SHEL","BP","SLB"]},
+    {"handle": "SECGov",          "tier": "official", "reliability": 95, "covers": ["all"]},
+    {"handle": "unusual_whales",  "tier": "analyst",  "reliability": 55, "covers": ["all"]}
+  ],
+  "cashtag_filter": [
+    "$NVDA","$TSLA","$AAPL","$MSFT","$GOOGL","$AMZN","$META","$AMD","$NFLX","$COIN",
+    "$XOM","$CVX","$COP","$OXY","$SHEL","$BP","$SLB","$NEE","$FSLR","$ENPH"
+  ],
+  "min_followers": 1000,
+  "blocklist_terms": [
+    "giveaway","airdrop","100x","moon","pump","🚀🚀🚀","not financial advice"
+  ]
+}
