@@ -29,7 +29,11 @@ celery_app.conf.beat_schedule = {
     "update-pending-results-every-30s": {
         "task": "app.performance.tracker.update_pending_results_task",
         "schedule": 30.0,
-    }
+    },
+    "custody-nav-autosnapshot-hourly": {
+        "task": "app.performance.tracker.custody_nav_autosnapshot_task",
+        "schedule": 3600.0,
+    },
 }
 celery_app.conf.timezone = "UTC"
 
@@ -118,3 +122,46 @@ def update_pending_results(signal_ids: Iterable[int] | None = None) -> int:
 @celery_app.task(name="app.performance.tracker.update_pending_results_task")
 def update_pending_results_task() -> int:
     return update_pending_results()
+
+
+@celery_app.task(name="app.performance.tracker.custody_nav_autosnapshot_task")
+def custody_nav_autosnapshot_task() -> dict[str, object]:
+    """Hourly NAV autoscheduler.
+
+    Gated by ``custody_nav_autoschedule_enabled``. Reads AUM from the
+    stub adapter in :mod:`app.custody.nav_scheduler`; no-ops (returns
+    ``{"status": "skipped", ...}``) if either the flag is off or the
+    adapter returns ``None``. Never raises into the Celery worker so a
+    misconfigured cluster is safe-by-default — the only visible effect
+    is a log line and no new snapshot row.
+    """
+    settings = get_settings()
+    if not settings.custody_nav_autoschedule_enabled:
+        return {"status": "skipped", "reason": "feature flag off"}
+
+    from app.custody.nav_scheduler import apply_nav_snapshot, read_aum_from_adapter
+
+    aum = read_aum_from_adapter()
+    if aum is None:
+        log.info("custody NAV autosnapshot: no AUM from adapter, skipping")
+        return {"status": "skipped", "reason": "adapter returned no aum"}
+
+    try:
+        with session_scope() as db:
+            result = apply_nav_snapshot(
+                db=db,
+                aum_usdt=aum,
+                note="autoscheduler: hourly",
+                actor_id=None,
+            )
+    except Exception as exc:  # noqa: BLE001
+        log.exception("custody NAV autosnapshot failed: %s", exc)
+        return {"status": "error", "error": str(exc)}
+
+    return {
+        "status": "ok",
+        "snapshot_id": result.snapshot_id,
+        "aum_usdt": result.total_aum_usdt,
+        "share_price": result.share_price,
+        "fee_shares_to_treasury": result.fee_shares_to_treasury,
+    }

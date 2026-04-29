@@ -114,6 +114,11 @@ class Settings(BaseSettings):
     # round-trip USDT through us). 24h matches what major CEXes do.
     custody_withdraw_cooldown_hours: int = 24
     custody_min_withdraw_usdt: float = 10.0
+    # Hourly Celery beat task that snapshots NAV + accrues perf fees.
+    # Default OFF — the operator still calls the endpoint manually in
+    # MVP. Flip to True only after the AUM adapter returns a real number.
+    # See app/custody/nav_scheduler.py for the stub env-var adapter.
+    custody_nav_autoschedule_enabled: bool = False
 
     # Webhook HMAC secrets — one per chain. Empty = chain-disabled
     # (POST /payments/<chain>/webhook returns 503). All secrets MUST be

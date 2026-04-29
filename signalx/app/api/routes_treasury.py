@@ -364,81 +364,23 @@ def nav_snapshot(
     db: Session = Depends(get_db),
     actor: User = Depends(require_role("admin")),
 ) -> dict[str, Any]:
-    # `total_shares` is invariant across the fee loop: fee-shares are
-    # transferred (client → treasury wallet), not burned, so the sum
-    # stays constant and AUM/total_shares stays stable. We compute it
-    # once and reuse it for both the snapshot row and the fee math.
-    total_shares = float(
-        db.query(ClientWallet).with_entities(
-            __import__("sqlalchemy").func.coalesce(__import__("sqlalchemy").func.sum(ClientWallet.shares), 0.0)
-        ).scalar() or 0.0
-    )
-    new_price = shares_math.share_price_from_aum(payload.aum_usdt, total_shares)
-    snap = NavSnapshot(
-        total_aum_usdt=float(payload.aum_usdt),
-        total_shares=total_shares,
-        share_price=new_price,
-        note=payload.note or None,
-    )
-    db.add(snap)
+    # Delegates to the shared helper in `app.custody.nav_scheduler` so
+    # the operator endpoint and the Celery beat autoscheduler execute
+    # the same fee-accrual + share-price math.
+    from app.custody.nav_scheduler import apply_nav_snapshot
 
-    # Accrue performance fees for every CLIENT wallet whose share-price
-    # beat its HWM. The fee is taken in shares, transferred from the
-    # client wallet to the internal treasury wallet, so pool AUM is
-    # unchanged — only share-of-pool reallocates.
-    s = get_settings()
-    perf_fee_pct = float(s.custody_perf_fee_pct)
-    treasury_wallet = _get_or_create_treasury_wallet(db)
-    total_fee_shares = 0.0
-    client_wallets = (
-        db.query(ClientWallet)
-        .filter(ClientWallet.shares > 0)
-        .filter(ClientWallet.user_id != treasury_wallet.user_id)
-        .all()
+    result = apply_nav_snapshot(
+        db=db,
+        aum_usdt=payload.aum_usdt,
+        note=payload.note,
+        actor_id=actor.id,
     )
-    for wallet in client_wallets:
-        old_hwm = float(wallet.hwm_share_price)
-        fee_shares, fee_usdt, new_hwm = shares_math.performance_fee_shares(
-            user_shares=float(wallet.shares),
-            share_price_now=new_price,
-            hwm_share_price=old_hwm,
-            perf_fee_pct=perf_fee_pct,
-        )
-        if fee_shares > 0:
-            wallet.shares = float(wallet.shares) - fee_shares
-            wallet.hwm_share_price = new_hwm
-            wallet.last_fee_at = datetime.utcnow()
-            wallet.balance_usdt = float(wallet.shares) * new_price
-            db.add(wallet)
-            total_fee_shares += fee_shares
-            db.add(PerformanceFee(
-                user_id=wallet.user_id,
-                kind="performance",
-                hwm_before=old_hwm,
-                hwm_after=new_hwm,
-                share_price=new_price,
-                fee_shares=fee_shares,
-                fee_usdt_equiv=fee_usdt,
-            ))
-    if total_fee_shares > 0:
-        treasury_wallet.shares = float(treasury_wallet.shares) + total_fee_shares
-        treasury_wallet.balance_usdt = float(treasury_wallet.shares) * new_price
-        db.add(treasury_wallet)
-    _audit(db, None, actor.id, "custody_nav_snapshot", {
-        "aum_usdt": float(payload.aum_usdt),
-        "total_shares": total_shares,
-        "share_price": new_price,
-        "fee_shares_to_treasury": total_fee_shares,
-        "note": payload.note,
-    })
-    db.commit()
-    db.refresh(snap)
     return {
-        "id": snap.id,
-        "at": snap.at.isoformat(),
-        "total_aum_usdt": float(snap.total_aum_usdt),
-        "total_shares": float(snap.total_shares),
-        "share_price_usdt": float(snap.share_price),
+        "id": result.snapshot_id,
+        "at": result.at.isoformat(),
+        "total_aum_usdt": result.total_aum_usdt,
+        "total_shares": result.total_shares,
+        "share_price_usdt": result.share_price,
     }
 
 
