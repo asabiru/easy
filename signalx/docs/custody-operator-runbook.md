@@ -129,6 +129,31 @@ Sentinel-routed because memo and address didn't match a known user.
 * New deposits are still issuing shares against the stale price. Not
   fatal, but unfair to either side depending on direction.
 * Snapshot now: `POST /admin/treasury/nav/snapshot {aum_usdt}`.
+* Consider enabling the autoscheduler (see below).
+
+### NAV autoscheduler (Celery beat, default OFF)
+
+An hourly Celery beat task (`custody_nav_autosnapshot_task`) can take
+this burden off the operator. It runs with `actor_id=null` and audit
+detail `scheduled=true`, so scheduled snapshots are distinguishable
+from operator-driven ones in the audit trail.
+
+Gated by two flags (both must be set):
+
+* `CUSTODY_NAV_AUTOSCHEDULE_ENABLED=true` — master flag.
+* `CUSTODY_NAV_AUTOSCHEDULE_AUM_USDT=<float>` — stub AUM source in
+  MVP. Each tick reads this value as the pool AUM. Real exchange +
+  on-chain balance adapters land later; when they do, this env var
+  is retired and the adapter becomes the single integration point.
+
+Until the real adapter is live, keep the flag **off** — scheduling
+at an env-var-derived AUM is only useful for dev / staging. In prod,
+leave the operator responsible for entering AUM per snapshot.
+
+If the task errors (adapter raises, DB issue, etc.), it logs +
+returns `{"status": "error", ...}` and never raises into the worker
+— a bad tick will not cascade a crash. Check logs and the audit log
+if scheduled snapshots stop appearing.
 
 ### Negative balance detected (`overall_status=critical`)
 
