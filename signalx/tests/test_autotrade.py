@@ -355,11 +355,14 @@ def test_signal_result_update_requires_admin(client):
 
 
 def test_x_webhook_signature_constant_time(client, monkeypatch):
-    """Regression for BUG_pr-review-job-a396d7d786094fc09ee63dcf33c7aa69_0003.
+    """The X / Discord webhook X-Webhook-Token check is body-bound HMAC
+    (not raw-secret compare) + constant-time — wrong values always 401,
+    a captured header value for body A cannot forge body B
+    (fix for BUG_pr-review-job-25df0c19b7e4433e9d14d010add6be0b_0001)."""
+    import hashlib
+    import hmac as _hmac
+    import json as _json
 
-    The X / Discord webhook signature check uses hmac.compare_digest, so
-    wrong values return 401 regardless of how close to the real secret
-    they are."""
     monkeypatch.setenv("X_WEBHOOK_SECRET", "real-secret-abc")
     from app.config.settings import get_settings
     get_settings.cache_clear()  # type: ignore[attr-defined]
@@ -369,14 +372,32 @@ def test_x_webhook_signature_constant_time(client, monkeypatch):
         "raw_text": "Apple beat Q4 earnings expectations.",
         "verified": True,
     }
+    body = _json.dumps(payload).encode()
+    good = _hmac.new(b"real-secret-abc", body, hashlib.sha256).hexdigest()
+
     # Wrong token → 401 (and no timing leak)
-    r = client.post("/news/ingest/x", json=payload, headers={"X-Webhook-Token": "wrong"})
+    r = client.post(
+        "/news/ingest/x", content=body,
+        headers={"Content-Type": "application/json", "X-Webhook-Token": "wrong"},
+    )
     assert r.status_code == 401
     # No header at all → 401
-    r = client.post("/news/ingest/x", json=payload)
+    r = client.post(
+        "/news/ingest/x", content=body,
+        headers={"Content-Type": "application/json"},
+    )
     assert r.status_code == 401
-    # Right secret → 200
-    r = client.post("/news/ingest/x", json=payload, headers={"X-Webhook-Token": "real-secret-abc"})
+    # Raw secret in header (old style) → 401 post-fix
+    r = client.post(
+        "/news/ingest/x", content=body,
+        headers={"Content-Type": "application/json", "X-Webhook-Token": "real-secret-abc"},
+    )
+    assert r.status_code == 401
+    # Proper HMAC → 200
+    r = client.post(
+        "/news/ingest/x", content=body,
+        headers={"Content-Type": "application/json", "X-Webhook-Token": good},
+    )
     assert r.status_code == 200, r.text
 
     get_settings.cache_clear()  # type: ignore[attr-defined]

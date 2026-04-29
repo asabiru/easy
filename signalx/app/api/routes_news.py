@@ -357,13 +357,24 @@ async def ingest_news_x(
     value without locking the endpoint out — the previous single-header
     AND check was unsatisfiable when the two secrets differed
     (BUG_0001 in pr-review-job-18f5b3c56eb1471986398db1336459e1).
+
+    Both ``X-Signature`` and ``X-Webhook-Token`` are body-bound
+    HMAC-SHA256 hex digests keyed on their respective secrets — we
+    never transmit the raw secrets in headers (fix for
+    BUG_pr-review-job-25df0c19b7e4433e9d14d010add6be0b_0001, which
+    extends the BUG_pr-review-job-76af88f3b2924077813350cc4cc47bef_0002
+    fix to the legacy X-only path).
     """
-    _verify_news_ingest_secret(x_signature, await request.body())
+    body = await request.body()
+    _verify_news_ingest_secret(x_signature, body)
     s = get_settings()
-    if s.x_webhook_secret and not hmac.compare_digest(
-        x_webhook_token or "", s.x_webhook_secret
-    ):
-        raise HTTPException(status_code=401, detail="invalid X-Webhook-Token")
+    if s.x_webhook_secret:
+        expected = hmac.new(
+            s.x_webhook_secret.encode(), body, hashlib.sha256
+        ).hexdigest()
+        supplied = (x_webhook_token or "").strip().lower()
+        if not hmac.compare_digest(expected, supplied):
+            raise HTTPException(status_code=401, detail="invalid X-Webhook-Token")
 
     handle = payload.handle.lstrip("@")
     meta = x_handle_meta(handle) or {}

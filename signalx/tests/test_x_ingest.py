@@ -250,6 +250,7 @@ def test_news_ingest_x_with_both_secrets_set_to_different_values(monkeypatch, cl
         "verified": True,
     }
     body, sig = _sign(payload, "alpha-secret")
+    _, webhook_sig = _sign(payload, "beta-secret")
 
     # Both correct → 200
     r = client.post(
@@ -257,7 +258,7 @@ def test_news_ingest_x_with_both_secrets_set_to_different_values(monkeypatch, cl
         headers={
             "Content-Type": "application/json",
             "X-Signature": sig,
-            "X-Webhook-Token": "beta-secret",
+            "X-Webhook-Token": webhook_sig,
         },
     )
     assert r.status_code == 200, r.text
@@ -270,7 +271,17 @@ def test_news_ingest_x_with_both_secrets_set_to_different_values(monkeypatch, cl
     # Only X-Webhook-Token → 401 (X-Signature missing)
     r = client.post(
         "/news/ingest/x", content=body,
-        headers={"Content-Type": "application/json", "X-Webhook-Token": "beta-secret"},
+        headers={"Content-Type": "application/json", "X-Webhook-Token": webhook_sig},
+    )
+    assert r.status_code == 401
+    # Raw secret in X-Webhook-Token (old style) → 401 post-fix
+    r = client.post(
+        "/news/ingest/x", content=body,
+        headers={
+            "Content-Type": "application/json",
+            "X-Signature": sig,
+            "X-Webhook-Token": "beta-secret",
+        },
     )
     assert r.status_code == 401
 
