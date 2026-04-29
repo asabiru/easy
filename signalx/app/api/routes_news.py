@@ -11,12 +11,13 @@ Endpoints:
 """
 from __future__ import annotations
 
+import hashlib
 import hmac
 import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -269,29 +270,34 @@ def _run_pipeline(
 # --------------------------------------------------------------------------- #
 # Endpoints                                                                    #
 # --------------------------------------------------------------------------- #
-def _verify_news_ingest_secret(x_signature: str | None) -> None:
+def _verify_news_ingest_secret(x_signature: str | None, body: bytes) -> None:
     """All public webhook ingest endpoints can fire signals AND dispatch
     autotrade orders into every eligible subscription. They MUST be
     protected — see CLAUDE.md rule 3 + .agents/skills/security/SKILL.md.
 
     Posture:
       * Prod / staging: `news_ingest_secret` MUST be set. Empty secret
-        → endpoint 503s rather than silently pass-through. This is the
-        fix for BUG_pr-review-job-9e08d504df2d48139d2f1508f4d6eaa1_0002
-        — previously an attacker could POST fake news in default-config
-        prod deploys and dispatch autotrade orders into every live +
-        paper subscription.
+        → endpoint 503s rather than silently pass-through. Previously
+        an attacker could POST fake news in default-config prod deploys
+        and dispatch autotrade orders into every live + paper
+        subscription (BUG_pr-review-job-9e08d504df2d48139d2f1508f4d6eaa1_0002).
       * Dev (`APP_ENV=dev`, test conftest): empty secret = silent pass
         so the existing 15+ ingest tests don't need header plumbing.
 
-    When the secret IS set we still require an exact constant-time match
-    on the ``X-Signature`` header regardless of environment.
+    Signature scheme (fix for
+    BUG_pr-review-job-76af88f3b2924077813350cc4cc47bef_0002):
+    ``X-Signature`` MUST be a lowercase hex HMAC-SHA256 of the raw
+    request body keyed on ``NEWS_INGEST_SECRET``. We no longer accept
+    the raw secret verbatim — doing so meant any party who intercepted
+    a single valid request (proxy logs, middleware logs) learned the
+    secret and could forge unlimited requests. Body-bound HMAC makes
+    each captured signature useless for any other payload.
     """
     s = get_settings()
     secret = s.news_ingest_secret
     if not secret:
         if s.app_env != "dev":
-            # Safe-default in non-dev envs. An unset secret in prod is a
+            # Safe-default in non-dev envs. An unset secret is a
             # critical misconfiguration — refuse rather than accept.
             raise HTTPException(
                 status_code=503,
@@ -301,12 +307,16 @@ def _verify_news_ingest_secret(x_signature: str | None) -> None:
                 ),
             )
         return
-    if not hmac.compare_digest(x_signature or "", secret):
+    if not x_signature:
+        raise HTTPException(status_code=401, detail="missing X-Signature")
+    expected = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected, x_signature.strip().lower()):
         raise HTTPException(status_code=401, detail="invalid X-Signature")
 
 
 @router.post("/news/ingest")
-def ingest_news(
+async def ingest_news(
+    request: Request,
     payload: NewsIngest,
     db: Session = Depends(get_db),
     x_signature: str | None = Header(default=None, alias="X-Signature"),
@@ -316,7 +326,7 @@ def ingest_news(
     Author metadata is unknown → AuthorMeta() neutral, fake_risk gets a
     baseline score driven mainly by source reliability + linguistic markers.
     """
-    _verify_news_ingest_secret(x_signature)
+    _verify_news_ingest_secret(x_signature, await request.body())
     return _run_pipeline(
         db=db,
         raw_payload=payload.model_dump(),
@@ -326,7 +336,8 @@ def ingest_news(
 
 
 @router.post("/news/ingest/x")
-def ingest_news_x(
+async def ingest_news_x(
+    request: Request,
     payload: XIngest,
     db: Session = Depends(get_db),
     x_signature: str | None = Header(default=None, alias="X-Signature"),
@@ -347,7 +358,7 @@ def ingest_news_x(
     AND check was unsatisfiable when the two secrets differed
     (BUG_0001 in pr-review-job-18f5b3c56eb1471986398db1336459e1).
     """
-    _verify_news_ingest_secret(x_signature)
+    _verify_news_ingest_secret(x_signature, await request.body())
     s = get_settings()
     if s.x_webhook_secret and not hmac.compare_digest(
         x_webhook_token or "", s.x_webhook_secret
@@ -382,14 +393,15 @@ def ingest_news_x(
 
 
 @router.post("/news/ingest/discord")
-def ingest_news_discord(
+async def ingest_news_discord(
+    request: Request,
     payload: DiscordIngest,
     db: Session = Depends(get_db),
     x_signature: str | None = Header(default=None, alias="X-Signature"),
 ) -> dict[str, Any]:
     """Discord-relay webhook. Same shape as X but no follower/age metadata —
     fake_risk falls back to the linguistic + cross-source layer."""
-    _verify_news_ingest_secret(x_signature)
+    _verify_news_ingest_secret(x_signature, await request.body())
 
     raw_payload = {
         "source": f"discord:{payload.channel.lower()}",
@@ -406,14 +418,15 @@ def ingest_news_discord(
 
 
 @router.post("/news/ingest/rss")
-def ingest_news_rss(
+async def ingest_news_rss(
+    request: Request,
     payload: RSSIngest,
     db: Session = Depends(get_db),
     x_signature: str | None = Header(default=None, alias="X-Signature"),
 ) -> dict[str, Any]:
     """Generic RSS / Atom item passthrough — the external poller has already
     de-duplicated by entry-id; we still apply our normalized-text dedup."""
-    _verify_news_ingest_secret(x_signature)
+    _verify_news_ingest_secret(x_signature, await request.body())
     raw_payload = {
         "source": payload.feed_id.lower(),
         "source_url": payload.entry_url,

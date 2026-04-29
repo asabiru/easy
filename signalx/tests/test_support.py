@@ -14,8 +14,11 @@ def test_create_support_ticket(client):
     body = r.json()
     assert isinstance(body["ticket_id"], int)
     assert body["status"] == "open"
+    # Capability token for anonymous read-back. Must be unguessable
+    # (>=16 chars) — see BUG_pr-review-job-76af88f3b2924077813350cc4cc47bef_0001.
+    assert isinstance(body["ticket_token"], str) and len(body["ticket_token"]) >= 20
 
-    g = client.get(f"/support/ticket/{body['ticket_id']}")
+    g = client.get(f"/support/ticket/{body['ticket_token']}")
     assert g.status_code == 200
     assert g.json()["category"] == "bug"
 
@@ -28,8 +31,28 @@ def test_create_ticket_invalid_message_too_short(client):
     assert r.status_code == 422
 
 
-def test_get_missing_ticket_404(client):
-    r = client.get("/support/ticket/999999")
+def test_get_ticket_by_sequential_id_is_rejected(client):
+    """Regression for BUG_pr-review-job-76af88f3b2924077813350cc4cc47bef_0001.
+
+    The old endpoint exposed tickets by their sequential int id, so an
+    attacker could enumerate all submitters' emails and messages by
+    incrementing the id. The fix looks up by a URL-safe random token
+    instead, and short inputs (int ids) 404 without database lookup.
+    """
+    r = client.post(
+        "/support/ticket",
+        json={"email": "victim@example.com", "category": "billing", "message": "leak me if you can"},
+    )
+    assert r.status_code == 200
+    # Int-id path that used to work — must 404 now, no matter how small.
+    for candidate in ("1", "2", "999999"):
+        g = client.get(f"/support/ticket/{candidate}")
+        assert g.status_code == 404, f"sequential id {candidate} leaked ticket"
+
+
+def test_get_missing_ticket_token_404(client):
+    # A well-formed-looking but wrong token — must 404.
+    r = client.get("/support/ticket/thisisnottherealcapabilitytoken1234")
     assert r.status_code == 404
 
 

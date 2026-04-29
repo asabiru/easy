@@ -1,4 +1,18 @@
 """Integration tests for /news/ingest/x — the X (Twitter) webhook ingest."""
+import hashlib
+import hmac as _hmac
+import json
+
+
+def _sign(payload: dict, secret: str) -> tuple[bytes, str]:
+    """Serialize the payload and compute the HMAC-SHA256 signature the
+    way /news/ingest verifies it. Returns (raw body bytes, hex digest).
+    Tests that want to exercise the authenticated path send ``content=body``
+    (not ``json=payload``) so the exact bytes we signed reach the server.
+    """
+    body = json.dumps(payload).encode()
+    sig = _hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+    return body, sig
 
 
 def test_x_webhook_known_press_handle_yields_signal(client):
@@ -91,23 +105,65 @@ def test_news_ingest_allows_unset_secret_in_dev(monkeypatch, client):
 
 
 def test_news_ingest_requires_signature_when_secret_set(monkeypatch, client):
-    """Regression for BUG_pr-review-job-2c2ebe1fc6814cffacdc1da6619c82de_0003.
-
-    Generic /news/ingest dispatches autotrade orders, must be protected
-    when news_ingest_secret is configured."""
+    """Generic /news/ingest dispatches autotrade orders, must be protected
+    when news_ingest_secret is configured. Post-fix the header must be an
+    HMAC-SHA256 of the body keyed on the secret, not the raw secret itself
+    (BUG_pr-review-job-76af88f3b2924077813350cc4cc47bef_0002)."""
     monkeypatch.setenv("NEWS_INGEST_SECRET", "topsecret")
     from app.config.settings import get_settings
     get_settings.cache_clear()
 
     payload = {"source": "reuters", "raw_text": "Acme reports earnings beat"}
+    body, sig = _sign(payload, "topsecret")
     # No header → 401
-    r = client.post("/news/ingest", json=payload)
+    r = client.post("/news/ingest", content=body, headers={"Content-Type": "application/json"})
     assert r.status_code == 401
     # Wrong header → 401
-    r = client.post("/news/ingest", json=payload, headers={"X-Signature": "wrong"})
+    r = client.post(
+        "/news/ingest", content=body,
+        headers={"Content-Type": "application/json", "X-Signature": "wrong"},
+    )
     assert r.status_code == 401
-    # Right header → not 401
-    r = client.post("/news/ingest", json=payload, headers={"X-Signature": "topsecret"})
+    # Raw secret in header (old style) → 401 post-fix
+    r = client.post(
+        "/news/ingest", content=body,
+        headers={"Content-Type": "application/json", "X-Signature": "topsecret"},
+    )
+    assert r.status_code == 401
+    # Proper HMAC → not 401
+    r = client.post(
+        "/news/ingest", content=body,
+        headers={"Content-Type": "application/json", "X-Signature": sig},
+    )
+    assert r.status_code != 401
+
+
+def test_news_ingest_hmac_signature_is_body_bound(monkeypatch, client):
+    """Regression for BUG_pr-review-job-76af88f3b2924077813350cc4cc47bef_0002.
+
+    The signature is HMAC(body, secret) — a signature computed for
+    payload A must NOT validate a request with payload B, even if both
+    share the same secret. Captured signatures are therefore useless
+    for forging arbitrary payloads."""
+    monkeypatch.setenv("NEWS_INGEST_SECRET", "topsecret")
+    from app.config.settings import get_settings
+    get_settings.cache_clear()
+
+    payload_a = {"source": "reuters", "raw_text": "AAPL beat Q4 expectations."}
+    payload_b = {"source": "reuters", "raw_text": "FAKE TIP NVDA acquisition imminent."}
+    body_a, sig_a = _sign(payload_a, "topsecret")
+    body_b, _ = _sign(payload_b, "topsecret")
+    # Replaying signature from A against body B must 401.
+    r = client.post(
+        "/news/ingest", content=body_b,
+        headers={"Content-Type": "application/json", "X-Signature": sig_a},
+    )
+    assert r.status_code == 401
+    # A's own signature still verifies A.
+    r = client.post(
+        "/news/ingest", content=body_a,
+        headers={"Content-Type": "application/json", "X-Signature": sig_a},
+    )
     assert r.status_code != 401
 
 
@@ -117,9 +173,16 @@ def test_news_ingest_discord_requires_signature_when_secret_set(monkeypatch, cli
     get_settings.cache_clear()
 
     payload = {"channel": "alpha", "raw_text": "NVDA up bid", "author": "trader"}
-    r = client.post("/news/ingest/discord", json=payload)
+    body, sig = _sign(payload, "topsecret")
+    r = client.post(
+        "/news/ingest/discord", content=body,
+        headers={"Content-Type": "application/json"},
+    )
     assert r.status_code == 401
-    r = client.post("/news/ingest/discord", json=payload, headers={"X-Signature": "topsecret"})
+    r = client.post(
+        "/news/ingest/discord", content=body,
+        headers={"Content-Type": "application/json", "X-Signature": sig},
+    )
     assert r.status_code != 401
 
 
@@ -129,40 +192,53 @@ def test_news_ingest_rss_requires_signature_when_secret_set(monkeypatch, client)
     get_settings.cache_clear()
 
     payload = {"feed_id": "reuters_business", "raw_text": "NVDA up bid"}
-    r = client.post("/news/ingest/rss", json=payload)
+    body, sig = _sign(payload, "topsecret")
+    r = client.post(
+        "/news/ingest/rss", content=body,
+        headers={"Content-Type": "application/json"},
+    )
     assert r.status_code == 401
-    r = client.post("/news/ingest/rss", json=payload, headers={"X-Signature": "topsecret"})
+    r = client.post(
+        "/news/ingest/rss", content=body,
+        headers={"Content-Type": "application/json", "X-Signature": sig},
+    )
     assert r.status_code != 401
 
 
 def test_news_ingest_x_requires_news_ingest_secret(monkeypatch, client):
-    """Regression for BUG_pr-review-job-5f8d54f0bce5493e86a1b963275ea000_0002.
-
-    /news/ingest/x must honor NEWS_INGEST_SECRET like every other ingest
+    """/news/ingest/x must honor NEWS_INGEST_SECRET like every other ingest
     endpoint — it dispatches the same autotrade orders."""
     monkeypatch.setenv("NEWS_INGEST_SECRET", "shared-key")
     from app.config.settings import get_settings
     get_settings.cache_clear()
 
     payload = {"handle": "DeItaone", "raw_text": "Acme reports earnings beat"}
-    # No header → 401 (news_ingest_secret enforced)
-    r = client.post("/news/ingest/x", json=payload)
+    body, sig = _sign(payload, "shared-key")
+    # No header → 401
+    r = client.post(
+        "/news/ingest/x", content=body,
+        headers={"Content-Type": "application/json"},
+    )
     assert r.status_code == 401
-    # Wrong → 401
-    r = client.post("/news/ingest/x", json=payload, headers={"X-Signature": "wrong"})
+    # Wrong signature → 401
+    r = client.post(
+        "/news/ingest/x", content=body,
+        headers={"Content-Type": "application/json", "X-Signature": "wrong"},
+    )
     assert r.status_code == 401
-    # Correct → not 401 (may 200 / may downstream error, just not auth)
-    r = client.post("/news/ingest/x", json=payload, headers={"X-Signature": "shared-key"})
+    # Proper HMAC → not 401 (may be 200 / may downstream error, just not auth)
+    r = client.post(
+        "/news/ingest/x", content=body,
+        headers={"Content-Type": "application/json", "X-Signature": sig},
+    )
     assert r.status_code != 401
 
 
 def test_news_ingest_x_with_both_secrets_set_to_different_values(monkeypatch, client):
-    """Regression for BUG_pr-review-job-18f5b3c56eb1471986398db1336459e1_0001.
-
-    When both NEWS_INGEST_SECRET and X_WEBHOOK_SECRET are configured to
-    DIFFERENT values, the endpoint must still be reachable — the caller
-    sends each secret in its own header (X-Signature for ingest,
-    X-Webhook-Token for the X-only legacy secret)."""
+    """When both NEWS_INGEST_SECRET and X_WEBHOOK_SECRET are configured
+    to DIFFERENT values, the endpoint must still be reachable — the
+    caller sends a body-bound HMAC in X-Signature plus the X-only legacy
+    secret in X-Webhook-Token."""
     monkeypatch.setenv("NEWS_INGEST_SECRET", "alpha-secret")
     monkeypatch.setenv("X_WEBHOOK_SECRET", "beta-secret")
     from app.config.settings import get_settings
@@ -173,26 +249,28 @@ def test_news_ingest_x_with_both_secrets_set_to_different_values(monkeypatch, cl
         "raw_text": "Apple beat Q4 earnings expectations.",
         "verified": True,
     }
+    body, sig = _sign(payload, "alpha-secret")
+
     # Both correct → 200
     r = client.post(
-        "/news/ingest/x", json=payload,
-        headers={"X-Signature": "alpha-secret", "X-Webhook-Token": "beta-secret"},
+        "/news/ingest/x", content=body,
+        headers={
+            "Content-Type": "application/json",
+            "X-Signature": sig,
+            "X-Webhook-Token": "beta-secret",
+        },
     )
     assert r.status_code == 200, r.text
     # Only X-Signature → 401 (X-Webhook-Token missing)
     r = client.post(
-        "/news/ingest/x", json=payload, headers={"X-Signature": "alpha-secret"},
+        "/news/ingest/x", content=body,
+        headers={"Content-Type": "application/json", "X-Signature": sig},
     )
     assert r.status_code == 401
-    # Only X-Webhook-Token → 401 (X-Signature missing for ingest secret)
+    # Only X-Webhook-Token → 401 (X-Signature missing)
     r = client.post(
-        "/news/ingest/x", json=payload, headers={"X-Webhook-Token": "beta-secret"},
-    )
-    assert r.status_code == 401
-    # Swapped values in headers → 401
-    r = client.post(
-        "/news/ingest/x", json=payload,
-        headers={"X-Signature": "beta-secret", "X-Webhook-Token": "alpha-secret"},
+        "/news/ingest/x", content=body,
+        headers={"Content-Type": "application/json", "X-Webhook-Token": "beta-secret"},
     )
     assert r.status_code == 401
 

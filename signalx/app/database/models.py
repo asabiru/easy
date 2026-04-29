@@ -363,10 +363,28 @@ class AutoTradeOrder(Base):
     exchange_order_id = Column(String(64), nullable=True)
 
 
+def _generate_ticket_token() -> str:
+    """URL-safe unguessable capability token for anonymous ticket lookup.
+
+    Anonymous callers cannot authenticate, so the token itself is the
+    capability: whoever holds the token can read the ticket. 24 random
+    bytes = ~192 bits of entropy → ~32 url-safe chars. Far beyond
+    enumeration range. See BUG_pr-review-job-76af88f3b2924077813350cc4cc47bef_0001.
+    """
+    import secrets as _s
+    return _s.token_urlsafe(24)
+
+
 class SupportTicket(Base):
     __tablename__ = "support_tickets"
 
     id = Column(Integer, primary_key=True, index=True)
+    # Capability token for anonymous ticket read-back. Replaces the
+    # sequential int id on the public GET /support/ticket/{token} path
+    # so an attacker cannot enumerate all tickets by incrementing the
+    # id. Nullable for migration compatibility with already-written rows
+    # (pre-fix); newly-created tickets always populate this.
+    lookup_token = Column(String(64), unique=True, index=True, nullable=True, default=_generate_ticket_token)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     email = Column(String(256), nullable=True, index=True)
     category = Column(String(32), nullable=False, index=True)  # bug / billing / feature / false_positive / other

@@ -33,7 +33,13 @@ class TicketIn(BaseModel):
 
 @router.post("/support/ticket")
 def create_ticket(payload: TicketIn, db: Session = Depends(get_db)) -> dict[str, Any]:
-    """Create a support ticket and forward it to the support channel."""
+    """Create a support ticket and forward it to the support channel.
+
+    Returns both the int ``ticket_id`` (for admin correlation) and a
+    URL-safe ``ticket_token``. The token is the capability for the
+    anonymous submitter to read the ticket back via
+    ``GET /support/ticket/{ticket_token}``.
+    """
     ticket = SupportTicket(
         email=payload.email,
         category=payload.category,
@@ -58,16 +64,40 @@ def create_ticket(payload: TicketIn, db: Session = Depends(get_db)) -> dict[str,
     except Exception as exc:  # pragma: no cover - defensive
         log.warning("telegram_send for ticket %s failed: %s", ticket.id, exc)
 
-    return {"ticket_id": ticket.id, "status": ticket.status}
+    return {
+        "ticket_id": ticket.id,
+        "ticket_token": ticket.lookup_token,
+        "status": ticket.status,
+    }
 
 
-@router.get("/support/ticket/{ticket_id}")
-def get_ticket(ticket_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
-    t = db.query(SupportTicket).filter(SupportTicket.id == ticket_id).first()
+@router.get("/support/ticket/{ticket_token}")
+def get_ticket(ticket_token: str, db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Anonymous ticket read-back via capability token.
+
+    Security (fix for BUG_pr-review-job-76af88f3b2924077813350cc4cc47bef_0001):
+    we look up by ``lookup_token`` (~192 bits of entropy), never by the
+    sequential int id. An attacker incrementing ``id`` CANNOT find
+    tickets because no token derives from the id. The old int-id path
+    used to leak every submitter's email + message to anyone who
+    guessed 1…N.
+
+    Tokens shorter than 16 chars (legacy rows written before the fix
+    landed, or obvious brute-force attempts) always 404 so the endpoint
+    can't be used to check for the presence of low-id rows.
+    """
+    if not ticket_token or len(ticket_token) < 16:
+        raise HTTPException(status_code=404, detail="ticket not found")
+    t = (
+        db.query(SupportTicket)
+        .filter(SupportTicket.lookup_token == ticket_token)
+        .first()
+    )
     if t is None:
         raise HTTPException(status_code=404, detail="ticket not found")
     return {
         "id": t.id,
+        "ticket_token": t.lookup_token,
         "created_at": t.created_at.isoformat() if t.created_at else None,
         "email": t.email,
         "category": t.category,
