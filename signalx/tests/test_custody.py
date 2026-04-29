@@ -358,6 +358,107 @@ def test_withdraw_requires_balance_and_burns_shares(client_with_db):
     assert r.status_code == 400
 
 
+def test_withdraw_2fa_gate_fires_on_amount_not_total_equity(client_with_db):
+    """Regression for BUG_pr-review-job-79660e7d0a43430e8783915dd692b362_0001.
+
+    The 2FA gate MUST key on the requested withdrawal amount, not the
+    user's total wallet equity. A user with $50k equity pulling $10
+    should NOT need 2FA; a user with $1k equity pulling $5001 should
+    — but since they don't have the balance we use the other direction
+    here (admin credits a >5k wallet, then client tries to pull $100
+    without 2FA → must succeed)."""
+    cl, db = client_with_db
+    _register(cl, "client@example.com")
+    _kyc_approve(db, "client@example.com")
+    cl.headers.pop("Authorization", None); cl.cookies.clear()
+    _register(cl, "admin@example.com")
+    _promote_admin(db, "admin@example.com")
+    cl.headers.pop("Authorization", None); cl.cookies.clear()
+    cl.post("/auth/login", json={"email": "admin@example.com", "password": "pw1234567"})
+
+    from app.database.models import User, Deposit
+    from datetime import datetime, timedelta
+    client_user = db.query(User).filter(User.email == "client@example.com").first()
+    cl.post("/admin/treasury/credit-deposit", json={
+        "user_id": client_user.id, "chain": "trc20",
+        "tx_hash": "TX2FA001", "amount_usdt": 20000.0,
+    })
+    # Backdate the deposit so cooldown doesn't also fire.
+    dep = db.query(Deposit).filter(Deposit.tx_hash == "TX2FA001").first()
+    dep.credited_at = datetime.utcnow() - timedelta(days=2)
+    db.commit()
+
+    cl.headers.pop("Authorization", None); cl.cookies.clear()
+    cl.post("/auth/login", json={"email": "client@example.com", "password": "pw1234567"})
+
+    # $100 pull on a $20k equity wallet without 2FA — must succeed
+    # (pre-fix this returned 403 because `equity >= 5000` gated it).
+    r = cl.post("/wallet/withdraw", json={
+        "chain": "trc20", "destination_address": "T" + "x" * 33,
+        "amount_usdt": 100.0,
+    })
+    assert r.status_code == 200, r.json()
+
+    # $6000 pull on the same wallet without 2FA — correctly blocked.
+    r = cl.post("/wallet/withdraw", json={
+        "chain": "trc20", "destination_address": "T" + "x" * 33,
+        "amount_usdt": 6000.0,
+    })
+    assert r.status_code == 403
+    assert "2FA" in r.json().get("detail", "")
+
+
+def test_withdraw_audit_kind_matches_runbook(client_with_db):
+    """Regression for BUG_pr-review-job-d759901438d744b896e4d24f4cfffa5e_0001.
+
+    The withdrawal audit row MUST use the kind string documented in
+    the runbook and the admin-dashboard filter dropdown
+    (`custody_withdraw_requested`), not `custody_withdraw_queued` —
+    a mismatch breaks the compliance-review workflow."""
+    cl, db = client_with_db
+    _register(cl, "wr-audit@example.com")
+    _kyc_approve(db, "wr-audit@example.com")
+    cl.headers.pop("Authorization", None); cl.cookies.clear()
+    _register(cl, "admin-wr@example.com")
+    _promote_admin(db, "admin-wr@example.com")
+    cl.headers.pop("Authorization", None); cl.cookies.clear()
+    cl.post("/auth/login", json={"email": "admin-wr@example.com", "password": "pw1234567"})
+
+    from app.database.models import User, Deposit, AmlEvent
+    from datetime import datetime, timedelta
+    client_user = db.query(User).filter(User.email == "wr-audit@example.com").first()
+    cl.post("/admin/treasury/credit-deposit", json={
+        "user_id": client_user.id, "chain": "trc20",
+        "tx_hash": "TX_AUDIT_01", "amount_usdt": 500.0,
+    })
+    # Backdate so the cooldown doesn't block the withdrawal request.
+    dep = db.query(Deposit).filter(Deposit.tx_hash == "TX_AUDIT_01").first()
+    dep.credited_at = datetime.utcnow() - timedelta(days=2)
+    db.commit()
+
+    cl.headers.pop("Authorization", None); cl.cookies.clear()
+    cl.post("/auth/login", json={"email": "wr-audit@example.com", "password": "pw1234567"})
+    r = cl.post("/wallet/withdraw", json={
+        "chain": "trc20", "destination_address": "T" + "x" * 33,
+        "amount_usdt": 50.0,
+    })
+    assert r.status_code == 200
+
+    rows = (
+        db.query(AmlEvent)
+        .filter(AmlEvent.kind == "custody_withdraw_requested")
+        .all()
+    )
+    assert len(rows) >= 1
+    # And the wrong kind string is NOT used.
+    wrong = (
+        db.query(AmlEvent)
+        .filter(AmlEvent.kind == "custody_withdraw_queued")
+        .all()
+    )
+    assert wrong == []
+
+
 def test_withdraw_blocked_by_cooldown_after_deposit(client_with_db):
     cl, db = client_with_db
     _register(cl, "client@example.com")

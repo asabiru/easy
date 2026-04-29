@@ -274,13 +274,32 @@ def _verify_news_ingest_secret(x_signature: str | None) -> None:
     autotrade orders into every eligible subscription. They MUST be
     protected — see CLAUDE.md rule 3 + .agents/skills/security/SKILL.md.
 
-    If `news_ingest_secret` is unset (typical local dev) we let the call
-    through so tests / smoke flows still work. In any non-empty config
-    the header MUST match in constant time. (BUG_0003 in
-    pr-review-job-2c2ebe1fc6814cffacdc1da6619c82de.)
+    Posture:
+      * Prod / staging: `news_ingest_secret` MUST be set. Empty secret
+        → endpoint 503s rather than silently pass-through. This is the
+        fix for BUG_pr-review-job-9e08d504df2d48139d2f1508f4d6eaa1_0002
+        — previously an attacker could POST fake news in default-config
+        prod deploys and dispatch autotrade orders into every live +
+        paper subscription.
+      * Dev (`APP_ENV=dev`, test conftest): empty secret = silent pass
+        so the existing 15+ ingest tests don't need header plumbing.
+
+    When the secret IS set we still require an exact constant-time match
+    on the ``X-Signature`` header regardless of environment.
     """
-    secret = get_settings().news_ingest_secret
+    s = get_settings()
+    secret = s.news_ingest_secret
     if not secret:
+        if s.app_env != "dev":
+            # Safe-default in non-dev envs. An unset secret in prod is a
+            # critical misconfiguration — refuse rather than accept.
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "news ingest is misconfigured: NEWS_INGEST_SECRET must "
+                    "be set in non-dev environments"
+                ),
+            )
         return
     if not hmac.compare_digest(x_signature or "", secret):
         raise HTTPException(status_code=401, detail="invalid X-Signature")

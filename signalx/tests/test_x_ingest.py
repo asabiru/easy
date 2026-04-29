@@ -58,6 +58,38 @@ def test_x_webhook_signature_mismatch_rejected(client, monkeypatch):
     assert r.status_code == 401
 
 
+def test_news_ingest_503_in_prod_when_secret_unset(monkeypatch, client):
+    """Regression for BUG_pr-review-job-9e08d504df2d48139d2f1508f4d6eaa1_0002.
+
+    In non-dev environments (prod/staging), an unset NEWS_INGEST_SECRET
+    MUST refuse the endpoint rather than silently pass-through. An
+    attacker could otherwise POST fake news into a default-config
+    deploy and dispatch autotrade orders into every live subscription.
+    """
+    monkeypatch.setenv("APP_ENV", "prod")
+    monkeypatch.delenv("NEWS_INGEST_SECRET", raising=False)
+    from app.config.settings import get_settings
+    get_settings.cache_clear()
+
+    payload = {"source": "reuters", "raw_text": "Acme reports earnings beat"}
+    r = client.post("/news/ingest", json=payload)
+    assert r.status_code == 503
+    assert "misconfigured" in r.json().get("detail", "")
+
+
+def test_news_ingest_allows_unset_secret_in_dev(monkeypatch, client):
+    """In dev (APP_ENV=dev, conftest default), unset secret = silent
+    pass so existing ingest tests don't need header plumbing."""
+    monkeypatch.setenv("APP_ENV", "dev")
+    monkeypatch.delenv("NEWS_INGEST_SECRET", raising=False)
+    from app.config.settings import get_settings
+    get_settings.cache_clear()
+
+    payload = {"source": "reuters", "raw_text": "Acme reports earnings beat"}
+    r = client.post("/news/ingest", json=payload)
+    assert r.status_code != 503
+
+
 def test_news_ingest_requires_signature_when_secret_set(monkeypatch, client):
     """Regression for BUG_pr-review-job-2c2ebe1fc6814cffacdc1da6619c82de_0003.
 

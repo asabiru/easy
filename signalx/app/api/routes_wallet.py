@@ -333,8 +333,18 @@ def withdraw(
             detail=f"withdraw cooldown active — try again in ~{wait_h}h",
         )
 
-    # 2FA gate for the higher tiers (mirrors /autotrade/go-live).
-    if user.role != "admin" and not user.totp_enabled and equity >= 5000:
+    # 2FA gate — keyed on the requested WITHDRAWAL AMOUNT, not total
+    # equity. A user with $50k equity should still be able to pull $10
+    # without 2FA; a user with $1k equity withdrawing their full balance
+    # doesn't cross the threshold either. The threshold fires on the
+    # size of the movement, which is the actual loss-exposure surface
+    # if the account is compromised.
+    # (Fix for BUG_pr-review-job-79660e7d0a43430e8783915dd692b362_0001.)
+    if (
+        user.role != "admin"
+        and not user.totp_enabled
+        and payload.amount_usdt >= 5000
+    ):
         raise HTTPException(
             status_code=403,
             detail="2FA required for withdrawals over 5000 USDT. POST /auth/2fa/setup.",
@@ -361,7 +371,11 @@ def withdraw(
     wallet.shares = float(wallet.shares) - shares_to_burn
     wallet.balance_usdt = _equity_usdt(wallet, share_price)
     db.add(wallet)
-    _audit(db, user.id, "custody_withdraw_queued", {
+    # Audit kind MUST match the string that the admin dashboard filter
+    # dropdown and operator runbook reference (`custody_withdraw_requested`).
+    # A mismatch breaks the documented workflow for compliance review.
+    # (Fix for BUG_pr-review-job-d759901438d744b896e4d24f4cfffa5e_0001.)
+    _audit(db, user.id, "custody_withdraw_requested", {
         "chain": payload.chain,
         "destination_address": payload.destination_address,
         "amount_usdt": float(payload.amount_usdt),
